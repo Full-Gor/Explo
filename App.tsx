@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { View, StyleSheet, ActivityIndicator } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import './src/i18n';
-import { FileExplorerScreen } from './src/screens';
+import { AppNavigator } from './src/navigation';
 import { colors } from './src/theme/colors';
 
 export default function App() {
@@ -12,7 +13,7 @@ export default function App() {
   useEffect(() => {
     async function prepare() {
       try {
-        // Simulate loading time for resources
+        // Simuler le chargement des ressources
         await new Promise((resolve) => setTimeout(resolve, 500));
       } catch (e) {
         console.warn(e);
@@ -34,18 +35,14 @@ export default function App() {
   }
 
   return (
-    <View style={styles.container}>
+    <SafeAreaProvider>
       <StatusBar style="light" />
-      <FileExplorerScreen />
-    </View>
+      <AppNavigator />
+    </SafeAreaProvider>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
   loadingContainer: {
     flex: 1,
     backgroundColor: colors.background,
