@@ -63,6 +63,18 @@ export function AudioIcon({ size = 40 }: IconProps) {
   );
 }
 
+export function VideoIcon({ size = 40 }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 40 40" fill="none">
+      <Rect x={4} y={8} width={32} height={24} rx={4} fill="#E74C3C" />
+      <Path
+        d="M17 15L26 20L17 25V15Z"
+        fill={colors.white}
+      />
+    </Svg>
+  );
+}
+
 export function ChartIcon({ size = 40 }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 40 40" fill="none">
@@ -275,6 +287,7 @@ export function ClockIcon({ size = 16 }: IconProps) {
 export const FileIcons = {
   FolderIcon,
   ImageIcon,
+  VideoIcon,
   AudioIcon,
   ChartIcon,
   DocumentIcon,

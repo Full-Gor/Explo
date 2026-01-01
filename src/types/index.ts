@@ -2,7 +2,7 @@ export interface FileItem {
   id: string;
   name: string;
   extension: string;
-  type: 'folder' | 'image' | 'audio' | 'document' | 'archive' | 'link' | 'app' | 'unknown';
+  type: 'folder' | 'image' | 'video' | 'audio' | 'document' | 'archive' | 'link' | 'app' | 'unknown';
   path?: string;
   size?: number;
   modifiedAt?: Date;
@@ -11,6 +11,8 @@ export interface FileItem {
   isMediaLibrary?: boolean;
   isMediaAsset?: boolean;
   isExternal?: boolean;
+  thumbnailUri?: string;
+  localUri?: string;
 }
 
 export interface FolderStats {

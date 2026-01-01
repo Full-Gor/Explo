@@ -22,6 +22,7 @@ import { SearchBar, ProgressBar, FileItem } from '../components';
 import {
   FolderIcon,
   ImageIcon,
+  VideoIcon,
   AudioIcon,
   DocumentIcon,
   ArchiveIcon,
@@ -48,6 +49,8 @@ function getFileIcon(type: FileItemType['type'], size = 40) {
       return <FolderIcon size={size} />;
     case 'image':
       return <ImageIcon size={size} />;
+    case 'video':
+      return <VideoIcon size={size} />;
     case 'audio':
       return <AudioIcon size={size} />;
     case 'archive':
@@ -276,6 +279,7 @@ export function HomeScreen() {
                   name={file.name}
                   extension={file.extension}
                   icon={getFileIcon(file.type)}
+                  thumbnailUri={file.thumbnailUri}
                   onPress={() => handleFilePress(file)}
                   onLongPress={() => handleFileLongPress(file)}
                   variant="solid"

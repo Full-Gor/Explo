@@ -19,6 +19,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 
 import {
   ImageIcon,
+  VideoIcon,
   AudioIcon,
   DocumentIcon,
   ArchiveIcon,
@@ -42,6 +43,8 @@ function getFileIcon(type: FileItemType['type'], size = 80) {
   switch (type) {
     case 'image':
       return <ImageIcon size={size} />;
+    case 'video':
+      return <VideoIcon size={size} />;
     case 'audio':
       return <AudioIcon size={size} />;
     case 'archive':
@@ -76,6 +79,7 @@ function getTypeName(type: FileItemType['type']): string {
   const names: Record<string, string> = {
     document: 'Document',
     image: 'Image',
+    video: 'Vidéo',
     audio: 'Audio',
     archive: 'Archive',
     app: 'Application',
@@ -88,20 +92,54 @@ function getTypeName(type: FileItemType['type']): string {
 
 function getMimeType(extension: string): string {
   const mimeTypes: Record<string, string> = {
+    // Images
     '.jpg': 'image/jpeg',
     '.jpeg': 'image/jpeg',
     '.png': 'image/png',
     '.gif': 'image/gif',
+    '.webp': 'image/webp',
+    '.bmp': 'image/bmp',
+    '.heic': 'image/heic',
+    '.heif': 'image/heif',
+    // Videos
+    '.mp4': 'video/mp4',
+    '.mov': 'video/quicktime',
+    '.avi': 'video/x-msvideo',
+    '.mkv': 'video/x-matroska',
+    '.wmv': 'video/x-ms-wmv',
+    '.flv': 'video/x-flv',
+    '.webm': 'video/webm',
+    '.m4v': 'video/mp4',
+    '.3gp': 'video/3gpp',
+    // Audio
+    '.mp3': 'audio/mpeg',
+    '.wav': 'audio/wav',
+    '.m4a': 'audio/mp4',
+    '.aac': 'audio/aac',
+    '.ogg': 'audio/ogg',
+    '.flac': 'audio/flac',
+    '.wma': 'audio/x-ms-wma',
+    // Documents
     '.pdf': 'application/pdf',
     '.doc': 'application/msword',
     '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     '.xls': 'application/vnd.ms-excel',
     '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    '.mp3': 'audio/mpeg',
-    '.wav': 'audio/wav',
-    '.mp4': 'video/mp4',
+    '.ppt': 'application/vnd.ms-powerpoint',
+    '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
     '.txt': 'text/plain',
+    '.csv': 'text/csv',
+    '.json': 'application/json',
+    '.xml': 'text/xml',
+    '.html': 'text/html',
+    // Archives
     '.zip': 'application/zip',
+    '.rar': 'application/x-rar-compressed',
+    '.7z': 'application/x-7z-compressed',
+    '.tar': 'application/x-tar',
+    '.gz': 'application/gzip',
+    // Apps
+    '.apk': 'application/vnd.android.package-archive',
   };
   return mimeTypes[extension.toLowerCase()] || '*/*';
 }
@@ -141,7 +179,7 @@ export function FileDetailScreen() {
     Vibration.vibrate(10);
     if (file.path) {
       const mimeType = getMimeType(file.extension);
-      const success = await FileSystemService.openFile(file.path, mimeType);
+      const success = await FileSystemService.openFile(file.path, mimeType, file.isMediaAsset);
       if (!success) {
         Alert.alert('Erreur', 'Impossible d\'ouvrir ce fichier');
       }

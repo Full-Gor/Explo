@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -8,16 +8,20 @@ import {
   Vibration,
   SafeAreaView,
   Dimensions,
+  ActivityIndicator,
+  RefreshControl,
+  Alert,
+  Image,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useTranslation } from 'react-i18next';
 
-import { FileItem } from '../components';
 import {
   FolderIcon,
   ImageIcon,
+  VideoIcon,
   AudioIcon,
   DocumentIcon,
   ArchiveIcon,
@@ -25,30 +29,17 @@ import {
 } from '../components/FileIcons';
 import { colors, borderRadius } from '../theme/colors';
 import { FileItem as FileItemType } from '../types';
+import { FileSystemService } from '../services/fileSystem';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 type RootStackParamList = {
   Home: undefined;
-  Folder: { folderId: string; folderName: string };
+  Folder: { folderId: string; folderName: string; path: string };
   FileDetail: { file: FileItemType };
 };
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
-
-// Fichiers récents de démonstration
-const RECENT_FILES: (FileItemType & { accessedAt: string })[] = [
-  { id: 'r1', name: 'Présentation', extension: '.pptx', type: 'document', accessedAt: 'Il y a 5 min' },
-  { id: 'r2', name: 'Photo vacances', extension: '.jpg', type: 'image', accessedAt: 'Il y a 15 min' },
-  { id: 'r3', name: 'Podcast #42', extension: '.mp3', type: 'audio', accessedAt: 'Il y a 1 heure' },
-  { id: 'r4', name: 'Budget 2024', extension: '.xlsx', type: 'document', accessedAt: 'Il y a 2 heures' },
-  { id: 'r5', name: 'Backup', extension: '.zip', type: 'archive', accessedAt: 'Hier' },
-  { id: 'r6', name: 'Notes réunion', extension: '.txt', type: 'document', accessedAt: 'Hier' },
-  { id: 'r7', name: 'Capture écran', extension: '.png', type: 'image', accessedAt: 'Il y a 2 jours' },
-  { id: 'r8', name: 'Chanson', extension: '.m4a', type: 'audio', accessedAt: 'Il y a 3 jours' },
-  { id: 'r9', name: 'CV', extension: '.pdf', type: 'document', accessedAt: 'La semaine dernière' },
-  { id: 'r10', name: 'Archive projet', extension: '.rar', type: 'archive', accessedAt: 'La semaine dernière' },
-];
 
 function getFileIcon(type: FileItemType['type'], size = 40) {
   switch (type) {
@@ -56,6 +47,8 @@ function getFileIcon(type: FileItemType['type'], size = 40) {
       return <FolderIcon size={size} />;
     case 'image':
       return <ImageIcon size={size} />;
+    case 'video':
+      return <VideoIcon size={size} />;
     case 'audio':
       return <AudioIcon size={size} />;
     case 'archive':
@@ -66,9 +59,58 @@ function getFileIcon(type: FileItemType['type'], size = 40) {
   }
 }
 
+function formatRelativeDate(date?: Date): string {
+  if (!date) return '';
+
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / (1000 * 60));
+  const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+  if (diffMins < 1) return 'À l\'instant';
+  if (diffMins < 60) return `Il y a ${diffMins} min`;
+  if (diffHours < 24) return `Il y a ${diffHours} heure${diffHours > 1 ? 's' : ''}`;
+  if (diffDays === 1) return 'Hier';
+  if (diffDays < 7) return `Il y a ${diffDays} jours`;
+  if (diffDays < 30) return `Il y a ${Math.floor(diffDays / 7)} semaine${Math.floor(diffDays / 7) > 1 ? 's' : ''}`;
+  return date.toLocaleDateString('fr-FR');
+}
+
 export function RecentScreen() {
   const { t } = useTranslation();
   const navigation = useNavigation<NavigationProp>();
+
+  const [files, setFiles] = useState<FileItemType[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const loadRecentFiles = async () => {
+    try {
+      const recentFiles = await FileSystemService.getRecentFiles(50);
+      setFiles(recentFiles);
+    } catch (error) {
+      console.error('Error loading recent files:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadRecentFiles();
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadRecentFiles();
+    }, [])
+  );
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    await loadRecentFiles();
+    setIsRefreshing(false);
+  };
 
   const handleFilePress = useCallback((file: FileItemType) => {
     Vibration.vibrate(10);
@@ -77,12 +119,49 @@ export function RecentScreen() {
 
   const handleFileLongPress = useCallback((file: FileItemType) => {
     Vibration.vibrate(50);
-  }, []);
+    Alert.alert(
+      file.name + file.extension,
+      'Options',
+      [
+        { text: 'Ouvrir', onPress: () => handleFilePress(file) },
+        {
+          text: 'Partager',
+          onPress: async () => {
+            if (file.path) {
+              await FileSystemService.share(file.path);
+            }
+          },
+        },
+        { text: 'Annuler', style: 'cancel' },
+      ]
+    );
+  }, [handleFilePress]);
 
   const handleClearRecent = useCallback(() => {
     Vibration.vibrate(30);
-    // TODO: Effacer l'historique des fichiers récents
+    Alert.alert(
+      'Effacer l\'historique',
+      'Cette fonctionnalité n\'est pas disponible car les fichiers récents sont basés sur les médias du système.',
+      [{ text: 'OK' }]
+    );
   }, []);
+
+  if (isLoading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.header}>
+          <View style={styles.headerLeft}>
+            <ClockIcon size={24} />
+            <Text style={styles.headerTitle}>{t('files.recents')}</Text>
+          </View>
+        </View>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={colors.accentGradientStart} />
+          <Text style={styles.loadingText}>Chargement...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -92,8 +171,8 @@ export function RecentScreen() {
           <ClockIcon size={24} />
           <Text style={styles.headerTitle}>{t('files.recents')}</Text>
         </View>
-        <TouchableOpacity onPress={handleClearRecent} style={styles.clearButton}>
-          <Feather name="trash-2" size={20} color={colors.textMuted} />
+        <TouchableOpacity onPress={handleRefresh} style={styles.clearButton}>
+          <Feather name="refresh-cw" size={20} color={colors.textMuted} />
         </TouchableOpacity>
       </View>
 
@@ -101,8 +180,15 @@ export function RecentScreen() {
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={handleRefresh}
+            tintColor={colors.accentGradientStart}
+          />
+        }
       >
-        {RECENT_FILES.map((file) => (
+        {files.map((file) => (
           <TouchableOpacity
             key={file.id}
             style={styles.fileRow}
@@ -111,24 +197,38 @@ export function RecentScreen() {
             activeOpacity={0.7}
           >
             <View style={styles.fileIconContainer}>
-              {getFileIcon(file.type, 36)}
+              {file.thumbnailUri ? (
+                <Image
+                  source={{ uri: file.thumbnailUri }}
+                  style={styles.thumbnail}
+                  resizeMode="cover"
+                />
+              ) : (
+                getFileIcon(file.type, 36)
+              )}
             </View>
             <View style={styles.fileInfo}>
               <Text style={styles.fileName} numberOfLines={1}>
                 {file.name}{file.extension}
               </Text>
-              <Text style={styles.fileDate}>{file.accessedAt}</Text>
+              <Text style={styles.fileDate}>{formatRelativeDate(file.modifiedAt)}</Text>
             </View>
-            <TouchableOpacity style={styles.moreButton}>
+            <TouchableOpacity
+              style={styles.moreButton}
+              onPress={() => handleFileLongPress(file)}
+            >
               <Feather name="more-vertical" size={20} color={colors.textMuted} />
             </TouchableOpacity>
           </TouchableOpacity>
         ))}
 
-        {RECENT_FILES.length === 0 && (
+        {files.length === 0 && (
           <View style={styles.emptyState}>
             <Feather name="clock" size={48} color={colors.textMuted} />
             <Text style={styles.emptyText}>Aucun fichier récent</Text>
+            <Text style={styles.emptySubtext}>
+              Les photos, vidéos et fichiers audio récemment modifiés apparaîtront ici
+            </Text>
           </View>
         )}
       </ScrollView>
@@ -140,6 +240,16 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 16,
+    color: colors.textMuted,
+    fontSize: 14,
   },
   header: {
     flexDirection: 'row',
@@ -166,7 +276,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingVertical: 16,
-    paddingBottom: 100,
+    paddingBottom: 120,
   },
   fileRow: {
     flexDirection: 'row',
@@ -186,6 +296,11 @@ const styles = StyleSheet.create({
     backgroundColor: colors.white,
     borderRadius: borderRadius.sm,
     marginRight: 12,
+    overflow: 'hidden',
+  },
+  thumbnail: {
+    width: '100%',
+    height: '100%',
   },
   fileInfo: {
     flex: 1,
@@ -207,10 +322,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 80,
+    paddingHorizontal: 40,
   },
   emptyText: {
     marginTop: 16,
     color: colors.textMuted,
     fontSize: 16,
+  },
+  emptySubtext: {
+    marginTop: 8,
+    color: colors.textMuted,
+    fontSize: 13,
+    textAlign: 'center',
+    opacity: 0.7,
   },
 });

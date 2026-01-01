@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -8,11 +8,24 @@ import {
   SafeAreaView,
   Switch,
   Vibration,
+  Alert,
+  Linking,
+  ActivityIndicator,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as FileSystem from 'expo-file-system';
 
 import { colors, borderRadius } from '../theme/colors';
+import { FileSystemService } from '../services/fileSystem';
+
+const SETTINGS_KEYS = {
+  DARK_MODE: '@settings_dark_mode',
+  HAPTIC_FEEDBACK: '@settings_haptic',
+  NOTIFICATIONS: '@settings_notifications',
+  LANGUAGE: '@settings_language',
+};
 
 interface SettingRowProps {
   icon: string;
@@ -20,23 +33,30 @@ interface SettingRowProps {
   value?: string;
   onPress?: () => void;
   showArrow?: boolean;
+  isLoading?: boolean;
 }
 
-function SettingRow({ icon, label, value, onPress, showArrow = true }: SettingRowProps) {
+function SettingRow({ icon, label, value, onPress, showArrow = true, isLoading }: SettingRowProps) {
   return (
     <TouchableOpacity
       style={styles.settingRow}
       onPress={onPress}
       activeOpacity={0.7}
-      disabled={!onPress}
+      disabled={!onPress || isLoading}
     >
       <View style={styles.settingIcon}>
         <Feather name={icon as any} size={20} color={colors.accentGradientStart} />
       </View>
       <Text style={styles.settingLabel}>{label}</Text>
-      {value && <Text style={styles.settingValue}>{value}</Text>}
-      {showArrow && onPress && (
-        <Feather name="chevron-right" size={20} color={colors.textMuted} />
+      {isLoading ? (
+        <ActivityIndicator size="small" color={colors.accentGradientStart} />
+      ) : (
+        <>
+          {value && <Text style={styles.settingValue}>{value}</Text>}
+          {showArrow && onPress && (
+            <Feather name="chevron-right" size={20} color={colors.textMuted} />
+          )}
+        </>
       )}
     </TouchableOpacity>
   );
@@ -71,15 +91,88 @@ export function SettingsScreen() {
   const [darkMode, setDarkMode] = useState(true);
   const [hapticFeedback, setHapticFeedback] = useState(true);
   const [notifications, setNotifications] = useState(true);
+  const [storageInfo, setStorageInfo] = useState<string>('Chargement...');
+  const [cacheSize, setCacheSize] = useState<string>('Calcul...');
+  const [isClearingCache, setIsClearingCache] = useState(false);
+
+  // Charger les paramètres sauvegardés
+  useEffect(() => {
+    loadSettings();
+    loadStorageInfo();
+    calculateCacheSize();
+  }, []);
+
+  const loadSettings = async () => {
+    try {
+      const [savedDarkMode, savedHaptic, savedNotifications, savedLanguage] = await Promise.all([
+        AsyncStorage.getItem(SETTINGS_KEYS.DARK_MODE),
+        AsyncStorage.getItem(SETTINGS_KEYS.HAPTIC_FEEDBACK),
+        AsyncStorage.getItem(SETTINGS_KEYS.NOTIFICATIONS),
+        AsyncStorage.getItem(SETTINGS_KEYS.LANGUAGE),
+      ]);
+
+      if (savedDarkMode !== null) setDarkMode(savedDarkMode === 'true');
+      if (savedHaptic !== null) setHapticFeedback(savedHaptic === 'true');
+      if (savedNotifications !== null) setNotifications(savedNotifications === 'true');
+      if (savedLanguage !== null) i18n.changeLanguage(savedLanguage);
+    } catch (error) {
+      console.error('Error loading settings:', error);
+    }
+  };
+
+  const loadStorageInfo = async () => {
+    try {
+      const info = await FileSystemService.getStorageInfo();
+      setStorageInfo(`${info.usedSpaceFormatted} / ${info.totalSpaceFormatted}`);
+    } catch (error) {
+      setStorageInfo('Non disponible');
+    }
+  };
+
+  const calculateCacheSize = async () => {
+    try {
+      const cacheDir = FileSystem.cacheDirectory;
+      if (cacheDir) {
+        const info = await FileSystem.getInfoAsync(cacheDir);
+        if (info.exists && (info as any).size) {
+          const sizeInMB = ((info as any).size / (1024 * 1024)).toFixed(1);
+          setCacheSize(`${sizeInMB} MB`);
+        } else {
+          setCacheSize('0 MB');
+        }
+      }
+    } catch (error) {
+      setCacheSize('Non disponible');
+    }
+  };
 
   const handleLanguageChange = useCallback(() => {
-    Vibration.vibrate(10);
-    // Cycle through languages for demo
-    const languages = ['fr', 'en', 'es', 'ru', 'zh', 'ja', 'ar'];
-    const currentIndex = languages.indexOf(i18n.language);
-    const nextIndex = (currentIndex + 1) % languages.length;
-    i18n.changeLanguage(languages[nextIndex]);
-  }, [i18n]);
+    if (hapticFeedback) Vibration.vibrate(10);
+
+    Alert.alert(
+      'Choisir la langue',
+      '',
+      [
+        { text: 'Français', onPress: () => changeLanguage('fr') },
+        { text: 'English', onPress: () => changeLanguage('en') },
+        { text: 'Español', onPress: () => changeLanguage('es') },
+        { text: 'Русский', onPress: () => changeLanguage('ru') },
+        { text: '中文', onPress: () => changeLanguage('zh') },
+        { text: '日本語', onPress: () => changeLanguage('ja') },
+        { text: 'العربية', onPress: () => changeLanguage('ar') },
+        { text: 'Annuler', style: 'cancel' },
+      ]
+    );
+  }, [hapticFeedback]);
+
+  const changeLanguage = async (lang: string) => {
+    try {
+      await AsyncStorage.setItem(SETTINGS_KEYS.LANGUAGE, lang);
+      i18n.changeLanguage(lang);
+    } catch (error) {
+      console.error('Error saving language:', error);
+    }
+  };
 
   const getLanguageName = (code: string): string => {
     const names: Record<string, string> = {
@@ -94,19 +187,105 @@ export function SettingsScreen() {
     return names[code] || code;
   };
 
-  const handleDarkModeChange = (value: boolean) => {
-    Vibration.vibrate(10);
+  const handleDarkModeChange = async (value: boolean) => {
+    if (hapticFeedback) Vibration.vibrate(10);
     setDarkMode(value);
+    try {
+      await AsyncStorage.setItem(SETTINGS_KEYS.DARK_MODE, value.toString());
+    } catch (error) {
+      console.error('Error saving dark mode:', error);
+    }
   };
 
-  const handleHapticChange = (value: boolean) => {
+  const handleHapticChange = async (value: boolean) => {
     if (value) Vibration.vibrate(10);
     setHapticFeedback(value);
+    try {
+      await AsyncStorage.setItem(SETTINGS_KEYS.HAPTIC_FEEDBACK, value.toString());
+    } catch (error) {
+      console.error('Error saving haptic setting:', error);
+    }
   };
 
-  const handleNotificationsChange = (value: boolean) => {
-    Vibration.vibrate(10);
+  const handleNotificationsChange = async (value: boolean) => {
+    if (hapticFeedback) Vibration.vibrate(10);
     setNotifications(value);
+    try {
+      await AsyncStorage.setItem(SETTINGS_KEYS.NOTIFICATIONS, value.toString());
+    } catch (error) {
+      console.error('Error saving notifications setting:', error);
+    }
+  };
+
+  const handleClearCache = async () => {
+    if (hapticFeedback) Vibration.vibrate(10);
+
+    Alert.alert(
+      'Vider le cache',
+      'Êtes-vous sûr de vouloir vider le cache de l\'application ?',
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Vider',
+          style: 'destructive',
+          onPress: async () => {
+            setIsClearingCache(true);
+            try {
+              const cacheDir = FileSystem.cacheDirectory;
+              if (cacheDir) {
+                const files = await FileSystem.readDirectoryAsync(cacheDir);
+                for (const file of files) {
+                  await FileSystem.deleteAsync(`${cacheDir}${file}`, { idempotent: true });
+                }
+              }
+              setCacheSize('0 MB');
+              Alert.alert('Succès', 'Le cache a été vidé');
+            } catch (error) {
+              console.error('Error clearing cache:', error);
+              Alert.alert('Erreur', 'Impossible de vider le cache');
+            } finally {
+              setIsClearingCache(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleStorageDetails = () => {
+    if (hapticFeedback) Vibration.vibrate(10);
+    Alert.alert(
+      'Stockage',
+      `Espace utilisé: ${storageInfo}\n\nL'espace de stockage est géré par le système.`,
+      [{ text: 'OK' }]
+    );
+  };
+
+  const handlePrivacyPolicy = () => {
+    if (hapticFeedback) Vibration.vibrate(10);
+    Alert.alert(
+      'Politique de confidentialité',
+      'Cette application ne collecte aucune donnée personnelle. Tous vos fichiers restent sur votre appareil.',
+      [{ text: 'OK' }]
+    );
+  };
+
+  const handleTermsOfService = () => {
+    if (hapticFeedback) Vibration.vibrate(10);
+    Alert.alert(
+      'Conditions d\'utilisation',
+      'Cette application est fournie "telle quelle" sans aucune garantie. Utilisez-la à vos propres risques.',
+      [{ text: 'OK' }]
+    );
+  };
+
+  const handleAbout = () => {
+    if (hapticFeedback) Vibration.vibrate(10);
+    Alert.alert(
+      'À propos de Explo',
+      'Explo - Explorateur de fichiers\nVersion 1.0.0\n\nUne application simple et élégante pour gérer vos fichiers.',
+      [{ text: 'OK' }]
+    );
   };
 
   return (
@@ -159,30 +338,22 @@ export function SettingsScreen() {
             <SettingRow
               icon="hard-drive"
               label="Stockage"
-              value="40 GB / 100 GB"
-              onPress={() => Vibration.vibrate(10)}
+              value={storageInfo}
+              onPress={handleStorageDetails}
             />
           </View>
         </View>
 
-        {/* Stockage */}
+        {/* Gestion des fichiers */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Gestion des fichiers</Text>
           <View style={styles.sectionContent}>
             <SettingRow
               icon="trash-2"
-              label="Vider la corbeille"
-              onPress={() => Vibration.vibrate(10)}
-            />
-            <SettingRow
-              icon="refresh-cw"
-              label="Synchroniser"
-              onPress={() => Vibration.vibrate(10)}
-            />
-            <SettingRow
-              icon="download-cloud"
-              label="Fichiers hors ligne"
-              onPress={() => Vibration.vibrate(10)}
+              label="Vider le cache"
+              value={cacheSize}
+              onPress={handleClearCache}
+              isLoading={isClearingCache}
             />
           </View>
         </View>
@@ -195,17 +366,17 @@ export function SettingsScreen() {
               icon="info"
               label="Version"
               value="1.0.0"
-              showArrow={false}
+              onPress={handleAbout}
             />
             <SettingRow
               icon="shield"
               label="Politique de confidentialité"
-              onPress={() => Vibration.vibrate(10)}
+              onPress={handlePrivacyPolicy}
             />
             <SettingRow
               icon="file-text"
               label="Conditions d'utilisation"
-              onPress={() => Vibration.vibrate(10)}
+              onPress={handleTermsOfService}
             />
           </View>
         </View>
@@ -236,7 +407,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingVertical: 16,
-    paddingBottom: 100,
+    paddingBottom: 120,
   },
   section: {
     marginBottom: 24,

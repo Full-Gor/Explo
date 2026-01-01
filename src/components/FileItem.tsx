@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   Animated,
   Vibration,
+  Image,
 } from 'react-native';
 import { colors, neuShadow, borderRadius } from '../theme/colors';
 import { FileIconType } from '../types';
@@ -14,6 +15,7 @@ interface Props {
   name: string;
   extension: string;
   icon: React.ReactNode;
+  thumbnailUri?: string;
   onPress?: () => void;
   onLongPress?: () => void;
   variant?: 'solid' | 'glass';
@@ -23,6 +25,7 @@ export function FileItem({
   name,
   extension,
   icon,
+  thumbnailUri,
   onPress,
   onLongPress,
   variant = 'solid',
@@ -77,9 +80,18 @@ export function FileItem({
             styles.iconWrapper,
             isGlass ? styles.glassIconWrapper : styles.solidIconWrapper,
             isPressed && !isGlass && styles.iconPressed,
+            thumbnailUri && styles.thumbnailWrapper,
           ]}
         >
-          {icon}
+          {thumbnailUri ? (
+            <Image
+              source={{ uri: thumbnailUri }}
+              style={styles.thumbnail}
+              resizeMode="cover"
+            />
+          ) : (
+            icon
+          )}
         </View>
         <Text
           style={[styles.name, isGlass && styles.glassName]}
@@ -145,6 +157,14 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.12,
     shadowRadius: 15,
     transform: [{ scale: 1.05 }],
+  },
+  thumbnailWrapper: {
+    overflow: 'hidden',
+  },
+  thumbnail: {
+    width: '100%',
+    height: '100%',
+    borderRadius: borderRadius.sm,
   },
   name: {
     fontSize: 12,

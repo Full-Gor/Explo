@@ -17,6 +17,16 @@ const FILE_TYPE_MAP: Record<string, FileItem['type']> = {
   '.heic': 'image',
   '.heif': 'image',
   '.svg': 'image',
+  // Video
+  '.mp4': 'video',
+  '.mov': 'video',
+  '.avi': 'video',
+  '.mkv': 'video',
+  '.wmv': 'video',
+  '.flv': 'video',
+  '.webm': 'video',
+  '.m4v': 'video',
+  '.3gp': 'video',
   // Audio
   '.mp3': 'audio',
   '.wav': 'audio',
@@ -220,16 +230,24 @@ class FileSystemServiceClass {
       console.error('Error getting media permissions:', error);
     }
 
-    // Téléchargements (si disponible)
-    if (Platform.OS === 'android') {
+    // Téléchargements (si disponible) - utilise le dossier Documents de l'app pour stocker les téléchargements
+    // Note: Sur Android, l'accès au dossier Downloads système nécessite des permissions spéciales
+    const downloadPath = FileSystem.documentDirectory + 'Downloads/';
+    try {
+      // Créer le dossier Downloads s'il n'existe pas
+      const downloadInfo = await FileSystem.getInfoAsync(downloadPath);
+      if (!downloadInfo.exists) {
+        await FileSystem.makeDirectoryAsync(downloadPath, { intermediates: true });
+      }
       directories.push({
         id: 'downloads',
         name: 'Téléchargements',
         extension: '',
         type: 'folder',
-        path: FileSystem.documentDirectory + '../Download/',
-        isExternal: true,
+        path: downloadPath,
       });
+    } catch (error) {
+      console.log('Could not create Downloads folder:', error);
     }
 
     return directories;
@@ -336,15 +354,20 @@ class FileSystemServiceClass {
 
       for (const asset of media.assets) {
         const extension = getFileExtension(asset.filename);
+        const fileType = mediaType === MediaLibrary.MediaType.video ? 'video' :
+                         mediaType === MediaLibrary.MediaType.audio ? 'audio' : 'image';
+
         files.push({
           id: asset.id,
           name: asset.filename.replace(/\.[^.]+$/, ''),
           extension,
-          type: getFileType(asset.filename, false),
+          type: fileType,
           path: asset.uri,
           size: asset.fileSize || 0,
           modifiedAt: new Date(asset.modificationTime * 1000),
           isMediaAsset: true,
+          // Pour les images et vidéos, l'URI peut être utilisée comme miniature
+          thumbnailUri: fileType !== 'audio' ? asset.uri : undefined,
         });
       }
     } catch (error) {
@@ -459,25 +482,124 @@ class FileSystemServiceClass {
   /**
    * Ouvre un fichier avec l'application par défaut
    */
-  async openFile(path: string, mimeType?: string): Promise<boolean> {
+  async openFile(path: string, mimeType?: string, isMediaAsset?: boolean): Promise<boolean> {
     try {
+      let fileUri = path;
+
+      // Pour les assets média, obtenir l'URI locale
+      if (isMediaAsset || path.startsWith('ph://') || path.startsWith('assets-library://')) {
+        const assetInfo = await this.getMediaAssetLocalUri(path);
+        if (assetInfo) {
+          fileUri = assetInfo;
+        } else {
+          // Fallback: utiliser le partage
+          return await this.share(path);
+        }
+      }
+
       if (Platform.OS === 'android') {
-        const contentUri = await FileSystem.getContentUriAsync(path);
-        await IntentLauncher.startActivityAsync('android.intent.action.VIEW', {
-          data: contentUri,
-          flags: 1, // FLAG_GRANT_READ_URI_PERMISSION
-          type: mimeType || '*/*',
-        });
+        // Vérifier si le fichier existe dans le système de fichiers normal
+        if (fileUri.startsWith('file://') || fileUri.startsWith('/')) {
+          const contentUri = await FileSystem.getContentUriAsync(fileUri);
+          await IntentLauncher.startActivityAsync('android.intent.action.VIEW', {
+            data: contentUri,
+            flags: 1, // FLAG_GRANT_READ_URI_PERMISSION
+            type: mimeType || '*/*',
+          });
+        } else {
+          // Pour les URIs spéciales, essayer directement
+          await IntentLauncher.startActivityAsync('android.intent.action.VIEW', {
+            data: fileUri,
+            flags: 1,
+            type: mimeType || '*/*',
+          });
+        }
         return true;
       } else {
         // Sur iOS, utiliser le partage pour ouvrir
-        await Sharing.shareAsync(path);
+        await Sharing.shareAsync(fileUri);
         return true;
       }
     } catch (error) {
       console.error('Error opening file:', error);
-      return false;
+      // Fallback: essayer le partage
+      try {
+        await Sharing.shareAsync(path);
+        return true;
+      } catch {
+        return false;
+      }
     }
+  }
+
+  /**
+   * Obtient l'URI locale d'un asset média
+   */
+  private async getMediaAssetLocalUri(assetUri: string): Promise<string | null> {
+    try {
+      // Extraire l'ID de l'asset
+      let assetId = assetUri;
+      if (assetUri.startsWith('ph://')) {
+        assetId = assetUri.replace('ph://', '').split('/')[0];
+      }
+
+      const assetInfo = await MediaLibrary.getAssetInfoAsync(assetId);
+      return assetInfo?.localUri || null;
+    } catch (error) {
+      console.error('Error getting media asset local URI:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Obtient les fichiers récents (images, vidéos, audio)
+   */
+  async getRecentFiles(limit: number = 50): Promise<FileItem[]> {
+    const files: FileItem[] = [];
+
+    try {
+      const hasPermission = await this.checkPermissions();
+      if (!hasPermission) {
+        return files;
+      }
+
+      // Récupérer les médias récents (photos, vidéos, audio)
+      const media = await MediaLibrary.getAssetsAsync({
+        first: limit,
+        sortBy: [[MediaLibrary.SortBy.modificationTime, false]], // Du plus récent au plus ancien
+      });
+
+      for (const asset of media.assets) {
+        const extension = getFileExtension(asset.filename);
+        let fileType: FileItem['type'] = 'unknown';
+
+        if (asset.mediaType === MediaLibrary.MediaType.photo) {
+          fileType = 'image';
+        } else if (asset.mediaType === MediaLibrary.MediaType.video) {
+          fileType = 'video';
+        } else if (asset.mediaType === MediaLibrary.MediaType.audio) {
+          fileType = 'audio';
+        }
+
+        files.push({
+          id: asset.id,
+          name: asset.filename.replace(/\.[^.]+$/, ''),
+          extension,
+          type: fileType,
+          path: asset.uri,
+          size: asset.fileSize || 0,
+          modifiedAt: new Date(asset.modificationTime * 1000),
+          createdAt: new Date(asset.creationTime * 1000),
+          isMediaAsset: true,
+          isRecent: true,
+          thumbnailUri: fileType !== 'audio' ? asset.uri : undefined,
+        });
+      }
+    } catch (error) {
+      console.error('Error getting recent files:', error);
+    }
+
+    return files;
   }
 
   /**
