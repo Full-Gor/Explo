@@ -2,8 +2,18 @@ import * as FileSystem from 'expo-file-system';
 import * as MediaLibrary from 'expo-media-library';
 import * as Sharing from 'expo-sharing';
 import * as IntentLauncher from 'expo-intent-launcher';
+import * as DocumentPicker from 'expo-document-picker';
 import { Platform } from 'react-native';
 import { FileItem } from '../types';
+
+// Types de sources de stockage
+export interface StorageSource {
+  id: string;
+  name: string;
+  icon: string;
+  type: 'internal' | 'external' | 'cloud';
+  available: boolean;
+}
 
 // Types de fichiers basés sur l'extension
 const FILE_TYPE_MAP: Record<string, FileItem['type']> = {
@@ -1163,6 +1173,190 @@ class FileSystemServiceClass {
       console.error('Error getting file info:', error);
       return null;
     }
+  }
+
+  /**
+   * Obtient les sources de stockage disponibles
+   */
+  async getStorageSources(): Promise<StorageSource[]> {
+    const sources: StorageSource[] = [];
+
+    // Stockage interne de l'application
+    sources.push({
+      id: 'internal',
+      name: 'Stockage interne',
+      icon: 'smartphone',
+      type: 'internal',
+      available: true,
+    });
+
+    // MediaLibrary (Photos, Vidéos, Audio)
+    const hasMediaPermission = await this.checkPermissions();
+    sources.push({
+      id: 'media',
+      name: 'Médias',
+      icon: 'image',
+      type: 'internal',
+      available: hasMediaPermission,
+    });
+
+    // Stockage externe / Carte SD (via Document Picker)
+    sources.push({
+      id: 'external',
+      name: 'Stockage externe / SD',
+      icon: 'hard-drive',
+      type: 'external',
+      available: true,
+    });
+
+    // Services Cloud (accessibles via Document Picker)
+    sources.push({
+      id: 'google-drive',
+      name: 'Google Drive',
+      icon: 'cloud',
+      type: 'cloud',
+      available: true,
+    });
+
+    sources.push({
+      id: 'dropbox',
+      name: 'Dropbox',
+      icon: 'cloud',
+      type: 'cloud',
+      available: true,
+    });
+
+    sources.push({
+      id: 'onedrive',
+      name: 'OneDrive',
+      icon: 'cloud',
+      type: 'cloud',
+      available: true,
+    });
+
+    return sources;
+  }
+
+  /**
+   * Importe un fichier depuis le stockage externe ou cloud via Document Picker
+   */
+  async importFile(options?: {
+    type?: string[];
+    multiple?: boolean;
+    copyToDocuments?: boolean;
+  }): Promise<{ success: boolean; files: FileItem[]; error?: string }> {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: options?.type || '*/*',
+        multiple: options?.multiple || false,
+        copyToCacheDirectory: true,
+      });
+
+      if (result.canceled) {
+        return { success: false, files: [], error: 'Annulé' };
+      }
+
+      const importedFiles: FileItem[] = [];
+
+      for (const asset of result.assets) {
+        const fileName = asset.name;
+        const extension = getFileExtension(fileName);
+        const fileType = getFileType(fileName, false);
+
+        // Si on veut copier vers Documents
+        if (options?.copyToDocuments && this.rootDirectories.documents) {
+          const destPath = `${this.rootDirectories.documents}${fileName}`;
+
+          // Vérifier si le fichier existe déjà
+          let finalPath = destPath;
+          const existingInfo = await FileSystem.getInfoAsync(destPath);
+          if (existingInfo.exists) {
+            const nameWithoutExt = fileName.replace(/\.[^.]+$/, '');
+            const ext = fileName.match(/\.[^.]+$/)?.[0] || '';
+            let counter = 1;
+            while (true) {
+              finalPath = `${this.rootDirectories.documents}${nameWithoutExt} (${counter})${ext}`;
+              const checkInfo = await FileSystem.getInfoAsync(finalPath);
+              if (!checkInfo.exists) break;
+              counter++;
+              if (counter > 100) break;
+            }
+          }
+
+          // Copier le fichier
+          await FileSystem.copyAsync({
+            from: asset.uri,
+            to: finalPath,
+          });
+
+          importedFiles.push({
+            id: finalPath,
+            name: finalPath.split('/').pop()?.replace(/\.[^.]+$/, '') || fileName.replace(/\.[^.]+$/, ''),
+            extension,
+            type: fileType,
+            path: finalPath,
+            size: asset.size || 0,
+            modifiedAt: new Date(),
+          });
+        } else {
+          // Juste retourner les infos du fichier sélectionné
+          importedFiles.push({
+            id: asset.uri,
+            name: fileName.replace(/\.[^.]+$/, ''),
+            extension,
+            type: fileType,
+            path: asset.uri,
+            size: asset.size || 0,
+            modifiedAt: new Date(),
+          });
+        }
+      }
+
+      return { success: true, files: importedFiles };
+    } catch (error) {
+      console.error('Error importing file:', error);
+      return { success: false, files: [], error: 'Erreur lors de l\'importation' };
+    }
+  }
+
+  /**
+   * Importe plusieurs fichiers depuis le stockage externe ou cloud
+   */
+  async importMultipleFiles(options?: {
+    type?: string[];
+    copyToDocuments?: boolean;
+  }): Promise<{ success: boolean; files: FileItem[]; error?: string }> {
+    return this.importFile({
+      ...options,
+      multiple: true,
+    });
+  }
+
+  /**
+   * Ouvre le sélecteur de fichiers pour un type spécifique
+   */
+  async pickFiles(fileType: 'image' | 'video' | 'audio' | 'document' | 'all'): Promise<{ success: boolean; files: FileItem[]; error?: string }> {
+    const typeMap: Record<string, string[]> = {
+      image: ['image/*'],
+      video: ['video/*'],
+      audio: ['audio/*'],
+      document: [
+        'application/pdf',
+        'application/msword',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'application/vnd.ms-excel',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'text/plain',
+        'text/csv',
+      ],
+      all: ['*/*'],
+    };
+
+    return this.importFile({
+      type: typeMap[fileType] || ['*/*'],
+      multiple: true,
+      copyToDocuments: true,
+    });
   }
 
   /**

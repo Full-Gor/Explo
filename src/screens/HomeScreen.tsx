@@ -31,7 +31,7 @@ import {
   MenuIcon,
 } from '../components/FileIcons';
 import { colors, gradients, borderRadius, neuShadow } from '../theme/colors';
-import { FileSystemService, StorageInfo } from '../services/fileSystem';
+import { FileSystemService, StorageInfo, StorageSource } from '../services/fileSystem';
 import { FileItem as FileItemType } from '../types';
 
 // Délai de debounce pour la recherche (ms)
@@ -84,6 +84,8 @@ export function HomeScreen() {
   const [totalFiles, setTotalFiles] = useState(0);
   const [totalFolders, setTotalFolders] = useState(0);
   const [folderColors, setFolderColors] = useState<Record<string, string>>({});
+  const [storageSources, setStorageSources] = useState<StorageSource[]>([]);
+  const [isImporting, setIsImporting] = useState(false);
   const searchTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
 
   // Charger les couleurs des dossiers
@@ -133,7 +135,7 @@ export function HomeScreen() {
       }
 
       // Charger les données
-      await Promise.all([loadFiles(), loadStorageInfo()]);
+      await Promise.all([loadFiles(), loadStorageInfo(), loadStorageSources()]);
     } catch (error) {
       console.error('Error initializing app:', error);
     } finally {
@@ -163,8 +165,69 @@ export function HomeScreen() {
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
-    await Promise.all([loadFiles(), loadStorageInfo()]);
+    await Promise.all([loadFiles(), loadStorageInfo(), loadStorageSources()]);
     setIsRefreshing(false);
+  };
+
+  const loadStorageSources = async () => {
+    try {
+      const sources = await FileSystemService.getStorageSources();
+      setStorageSources(sources);
+    } catch (error) {
+      console.error('Error loading storage sources:', error);
+    }
+  };
+
+  const handleImportFiles = async () => {
+    Vibration.vibrate(10);
+    Alert.alert(
+      'Importer des fichiers',
+      'Choisissez le type de fichiers à importer',
+      [
+        {
+          text: 'Tous les fichiers',
+          onPress: () => importFilesOfType('all'),
+        },
+        {
+          text: 'Images',
+          onPress: () => importFilesOfType('image'),
+        },
+        {
+          text: 'Vidéos',
+          onPress: () => importFilesOfType('video'),
+        },
+        {
+          text: 'Audio',
+          onPress: () => importFilesOfType('audio'),
+        },
+        {
+          text: 'Documents',
+          onPress: () => importFilesOfType('document'),
+        },
+        { text: 'Annuler', style: 'cancel' },
+      ]
+    );
+  };
+
+  const importFilesOfType = async (fileType: 'image' | 'video' | 'audio' | 'document' | 'all') => {
+    setIsImporting(true);
+    try {
+      const result = await FileSystemService.pickFiles(fileType);
+      if (result.success && result.files.length > 0) {
+        Alert.alert(
+          'Succès',
+          `${result.files.length} fichier(s) importé(s) dans Documents`,
+          [{ text: 'OK', onPress: () => loadFiles() }]
+        );
+      } else if (result.error && result.error !== 'Annulé') {
+        Alert.alert('Erreur', result.error);
+      }
+    } catch (error) {
+      console.error('Import error:', error);
+      Alert.alert('Erreur', 'Une erreur est survenue lors de l\'importation');
+    } finally {
+      setIsImporting(false);
+    }
   };
 
   // Effectuer la recherche globale
@@ -254,6 +317,7 @@ export function HomeScreen() {
       'Menu',
       'Options',
       [
+        { text: 'Importer des fichiers', onPress: handleImportFiles },
         { text: 'Actualiser', onPress: handleRefresh },
         { text: 'Paramètres', onPress: () => {} },
         { text: 'Annuler', style: 'cancel' },
@@ -281,10 +345,23 @@ export function HomeScreen() {
         end={{ x: 0.5, y: 1 }}
         style={styles.header}
       >
-        {/* Bouton Menu */}
-        <TouchableOpacity onPress={toggleMenu} style={styles.menuButton}>
-          <MenuIcon size={24} />
-        </TouchableOpacity>
+        {/* Boutons Menu et Import */}
+        <View style={styles.headerButtons}>
+          <TouchableOpacity onPress={toggleMenu} style={styles.menuButton}>
+            <MenuIcon size={24} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={handleImportFiles}
+            style={styles.importButton}
+            disabled={isImporting}
+          >
+            {isImporting ? (
+              <ActivityIndicator size="small" color={colors.white} />
+            ) : (
+              <Feather name="download-cloud" size={22} color={colors.white} />
+            )}
+          </TouchableOpacity>
+        </View>
 
         {/* Barre de recherche */}
         <SearchBar
@@ -315,6 +392,37 @@ export function HomeScreen() {
             progress={storageInfo?.usedPercentage || 0}
             label={`${storageInfo?.freeSpaceFormatted || '...'} disponible`}
           />
+        </View>
+
+        {/* Sources de stockage */}
+        <View style={styles.storageSourcesContainer}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.storageSourcesScroll}
+          >
+            {storageSources.filter(s => s.type === 'cloud' || s.type === 'external').map((source) => (
+              <TouchableOpacity
+                key={source.id}
+                style={styles.storageSourceItem}
+                onPress={handleImportFiles}
+              >
+                <View style={[
+                  styles.storageSourceIcon,
+                  source.type === 'cloud' && styles.storageSourceIconCloud,
+                ]}>
+                  <Feather
+                    name={source.icon as any}
+                    size={18}
+                    color={source.type === 'cloud' ? colors.accentGradientStart : colors.white}
+                  />
+                </View>
+                <Text style={styles.storageSourceName} numberOfLines={1}>
+                  {source.name}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
         </View>
       </LinearGradient>
 
@@ -419,10 +527,19 @@ const styles = StyleSheet.create({
     borderBottomLeftRadius: borderRadius.xl,
     borderBottomRightRadius: borderRadius.xl,
   },
-  menuButton: {
-    alignSelf: 'center',
+  headerButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     marginBottom: 16,
+  },
+  menuButton: {
     padding: 8,
+  },
+  importButton: {
+    padding: 8,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    borderRadius: borderRadius.sm,
   },
   storageInfo: {
     flexDirection: 'row',
@@ -518,5 +635,34 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  // Storage sources styles
+  storageSourcesContainer: {
+    marginTop: 16,
+  },
+  storageSourcesScroll: {
+    paddingRight: 20,
+  },
+  storageSourceItem: {
+    alignItems: 'center',
+    marginRight: 16,
+    width: 70,
+  },
+  storageSourceIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  storageSourceIconCloud: {
+    backgroundColor: 'rgba(102, 126, 234, 0.2)',
+  },
+  storageSourceName: {
+    color: colors.textMuted,
+    fontSize: 10,
+    textAlign: 'center',
   },
 });
