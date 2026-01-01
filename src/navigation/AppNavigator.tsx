@@ -18,7 +18,7 @@ import { FileItem } from '../types';
 // Types de navigation
 export type RootStackParamList = {
   MainTabs: undefined;
-  Folder: { folderId: string; folderName: string };
+  Folder: { folderId: string; folderName: string; path: string };
   FileDetail: { file: FileItem };
 };
 
@@ -104,15 +104,15 @@ export function AppNavigator() {
 const styles = StyleSheet.create({
   tabBar: {
     position: 'absolute',
-    bottom: 16,
+    bottom: 30,
     left: 16,
     right: 16,
-    height: 70,
+    height: 65,
     backgroundColor: colors.cardBg,
     borderRadius: borderRadius.xl,
     borderTopWidth: 0,
-    paddingBottom: 8,
-    paddingTop: 8,
+    paddingBottom: 6,
+    paddingTop: 6,
     shadowColor: colors.black,
     shadowOffset: { width: 0, height: -4 },
     shadowOpacity: 0.15,

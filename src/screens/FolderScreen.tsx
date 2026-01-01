@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -8,6 +8,11 @@ import {
   Vibration,
   SafeAreaView,
   Dimensions,
+  ActivityIndicator,
+  Alert,
+  RefreshControl,
+  TextInput,
+  Modal,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
@@ -20,63 +25,22 @@ import {
   AudioIcon,
   DocumentIcon,
   ArchiveIcon,
+  AppIcon,
 } from '../components/FileIcons';
-import { colors, borderRadius, neuShadow } from '../theme/colors';
+import { colors, borderRadius } from '../theme/colors';
+import { FileSystemService } from '../services/fileSystem';
 import { FileItem as FileItemType } from '../types';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 type RootStackParamList = {
   Home: undefined;
-  Folder: { folderId: string; folderName: string };
+  Folder: { folderId: string; folderName: string; path: string };
   FileDetail: { file: FileItemType };
 };
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 type FolderRouteProp = RouteProp<RootStackParamList, 'Folder'>;
-
-// Données de démonstration par dossier
-const FOLDER_CONTENTS: Record<string, FileItemType[]> = {
-  '1': [ // Documents
-    { id: '1-1', name: 'Travail', extension: '', type: 'folder' },
-    { id: '1-2', name: 'Personnel', extension: '', type: 'folder' },
-    { id: '1-3', name: 'CV', extension: '.pdf', type: 'document' },
-    { id: '1-4', name: 'Contrat', extension: '.docx', type: 'document' },
-    { id: '1-5', name: 'Factures', extension: '.xlsx', type: 'document' },
-  ],
-  '2': [ // Images
-    { id: '2-1', name: 'Vacances 2024', extension: '', type: 'folder' },
-    { id: '2-2', name: 'Screenshots', extension: '', type: 'folder' },
-    { id: '2-3', name: 'Photo1', extension: '.jpg', type: 'image' },
-    { id: '2-4', name: 'Photo2', extension: '.png', type: 'image' },
-    { id: '2-5', name: 'Panorama', extension: '.jpeg', type: 'image' },
-    { id: '2-6', name: 'Portrait', extension: '.heic', type: 'image' },
-  ],
-  '3': [ // Musique
-    { id: '3-1', name: 'Playlists', extension: '', type: 'folder' },
-    { id: '3-2', name: 'Podcasts', extension: '', type: 'folder' },
-    { id: '3-3', name: 'Song1', extension: '.mp3', type: 'audio' },
-    { id: '3-4', name: 'Song2', extension: '.m4a', type: 'audio' },
-    { id: '3-5', name: 'Album', extension: '.flac', type: 'audio' },
-  ],
-  '4': [ // Téléchargements
-    { id: '4-1', name: 'App', extension: '.apk', type: 'archive' },
-    { id: '4-2', name: 'Setup', extension: '.exe', type: 'archive' },
-    { id: '4-3', name: 'Guide', extension: '.pdf', type: 'document' },
-    { id: '4-4', name: 'Image', extension: '.png', type: 'image' },
-  ],
-  '5': [ // Vidéos
-    { id: '5-1', name: 'Films', extension: '', type: 'folder' },
-    { id: '5-2', name: 'Clips', extension: '', type: 'folder' },
-    { id: '5-3', name: 'Video1', extension: '.mp4', type: 'document' },
-    { id: '5-4', name: 'Video2', extension: '.mov', type: 'document' },
-  ],
-  '6': [ // Archives
-    { id: '6-1', name: 'Backup_2024', extension: '.zip', type: 'archive' },
-    { id: '6-2', name: 'Photos_old', extension: '.tar.gz', type: 'archive' },
-    { id: '6-3', name: 'Projects', extension: '.rar', type: 'archive' },
-  ],
-};
 
 function getFileIcon(type: FileItemType['type'], size = 40) {
   switch (type) {
@@ -88,21 +52,64 @@ function getFileIcon(type: FileItemType['type'], size = 40) {
       return <AudioIcon size={size} />;
     case 'archive':
       return <ArchiveIcon size={size} />;
+    case 'app':
+      return <AppIcon size={size} />;
     case 'document':
     default:
       return <DocumentIcon size={size} />;
   }
 }
 
+function formatFileSize(bytes?: number): string {
+  if (!bytes) return '';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
+}
+
 export function FolderScreen() {
   const navigation = useNavigation<NavigationProp>();
   const route = useRoute<FolderRouteProp>();
-  const { folderId, folderName } = route.params;
+  const { folderName, path } = route.params;
 
   const [searchQuery, setSearchQuery] = useState('');
+  const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [files, setFiles] = useState<FileItemType[]>([]);
+  const [totalFiles, setTotalFiles] = useState(0);
+  const [totalFolders, setTotalFolders] = useState(0);
 
-  const folderContents = FOLDER_CONTENTS[folderId] || [];
-  const filteredFiles = folderContents.filter((file) =>
+  // Modal pour créer un dossier
+  const [showNewFolderModal, setShowNewFolderModal] = useState(false);
+  const [newFolderName, setNewFolderName] = useState('');
+
+  useEffect(() => {
+    loadDirectory();
+  }, [path]);
+
+  const loadDirectory = async () => {
+    setIsLoading(true);
+    try {
+      const result = await FileSystemService.listDirectory(path);
+      setFiles(result.files);
+      setTotalFiles(result.totalFiles);
+      setTotalFolders(result.totalFolders);
+    } catch (error) {
+      console.error('Error loading directory:', error);
+      Alert.alert('Erreur', 'Impossible de charger ce dossier');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    await loadDirectory();
+    setIsRefreshing(false);
+  };
+
+  const filteredFiles = files.filter((file) =>
     file.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
@@ -117,17 +124,116 @@ export function FolderScreen() {
 
   const handleFilePress = useCallback((file: FileItemType) => {
     Vibration.vibrate(10);
-    if (file.type === 'folder') {
-      navigation.push('Folder', { folderId: file.id, folderName: file.name });
-    } else {
+    if (file.type === 'folder' && file.path) {
+      navigation.push('Folder', {
+        folderId: file.id,
+        folderName: file.name,
+        path: file.path,
+      });
+    } else if (file.path) {
       navigation.navigate('FileDetail', { file });
     }
   }, [navigation]);
 
   const handleFileLongPress = useCallback((file: FileItemType) => {
     Vibration.vibrate(50);
-    // TODO: Menu contextuel
-  }, []);
+    Alert.alert(
+      file.name + file.extension,
+      file.size ? `Taille: ${formatFileSize(file.size)}` : 'Que voulez-vous faire ?',
+      [
+        { text: 'Ouvrir', onPress: () => handleFilePress(file) },
+        {
+          text: 'Partager',
+          onPress: async () => {
+            if (file.path && !file.isMediaLibrary) {
+              const success = await FileSystemService.share(file.path);
+              if (!success) {
+                Alert.alert('Erreur', 'Impossible de partager ce fichier');
+              }
+            }
+          },
+        },
+        {
+          text: 'Supprimer',
+          style: 'destructive',
+          onPress: () => confirmDelete(file),
+        },
+        { text: 'Annuler', style: 'cancel' },
+      ]
+    );
+  }, [handleFilePress]);
+
+  const confirmDelete = (file: FileItemType) => {
+    Alert.alert(
+      'Confirmer la suppression',
+      `Voulez-vous vraiment supprimer "${file.name}${file.extension}" ?`,
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Supprimer',
+          style: 'destructive',
+          onPress: async () => {
+            if (file.path) {
+              const success = await FileSystemService.delete(file.path);
+              if (success) {
+                await loadDirectory();
+              } else {
+                Alert.alert('Erreur', 'Impossible de supprimer ce fichier');
+              }
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleCreateFolder = async () => {
+    if (!newFolderName.trim()) {
+      Alert.alert('Erreur', 'Veuillez entrer un nom de dossier');
+      return;
+    }
+
+    const success = await FileSystemService.createFolder(path, newFolderName.trim());
+    if (success) {
+      setShowNewFolderModal(false);
+      setNewFolderName('');
+      await loadDirectory();
+    } else {
+      Alert.alert('Erreur', 'Impossible de créer le dossier');
+    }
+  };
+
+  const handleMoreOptions = () => {
+    Vibration.vibrate(10);
+    Alert.alert(
+      'Options',
+      folderName,
+      [
+        { text: 'Nouveau dossier', onPress: () => setShowNewFolderModal(true) },
+        { text: 'Actualiser', onPress: handleRefresh },
+        { text: 'Annuler', style: 'cancel' },
+      ]
+    );
+  };
+
+  if (isLoading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={handleBack} style={styles.backButton}>
+            <Feather name="arrow-left" size={24} color={colors.white} />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle} numberOfLines={1}>
+            {folderName}
+          </Text>
+        </View>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={colors.accentGradientStart} />
+          <Text style={styles.loadingText}>Chargement...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -139,7 +245,7 @@ export function FolderScreen() {
         <Text style={styles.headerTitle} numberOfLines={1}>
           {folderName}
         </Text>
-        <TouchableOpacity style={styles.moreButton}>
+        <TouchableOpacity onPress={handleMoreOptions} style={styles.moreButton}>
           <Feather name="more-vertical" size={24} color={colors.white} />
         </TouchableOpacity>
       </View>
@@ -153,8 +259,14 @@ export function FolderScreen() {
       <View style={styles.folderInfo}>
         <FolderIcon size={32} />
         <Text style={styles.folderInfoText}>
-          {filteredFiles.length} éléments
+          {totalFolders} dossiers, {totalFiles} fichiers
         </Text>
+        <TouchableOpacity
+          onPress={() => setShowNewFolderModal(true)}
+          style={styles.addButton}
+        >
+          <Feather name="folder-plus" size={20} color={colors.accentGradientStart} />
+        </TouchableOpacity>
       </View>
 
       {/* Grille des fichiers */}
@@ -162,6 +274,13 @@ export function FolderScreen() {
         <ScrollView
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.filesScrollContent}
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefreshing}
+              onRefresh={handleRefresh}
+              tintColor={colors.accentGradientStart}
+            />
+          }
         >
           <View style={styles.filesGrid}>
             {filteredFiles.map((file) => (
@@ -181,11 +300,61 @@ export function FolderScreen() {
           {filteredFiles.length === 0 && (
             <View style={styles.emptyState}>
               <Feather name="folder" size={48} color={colors.textMuted} />
-              <Text style={styles.emptyText}>Dossier vide</Text>
+              <Text style={styles.emptyText}>
+                {searchQuery ? 'Aucun résultat' : 'Dossier vide'}
+              </Text>
+              {!searchQuery && (
+                <TouchableOpacity
+                  style={styles.createFolderButton}
+                  onPress={() => setShowNewFolderModal(true)}
+                >
+                  <Feather name="folder-plus" size={20} color={colors.white} />
+                  <Text style={styles.createFolderText}>Créer un dossier</Text>
+                </TouchableOpacity>
+              )}
             </View>
           )}
         </ScrollView>
       </View>
+
+      {/* Modal Nouveau Dossier */}
+      <Modal
+        visible={showNewFolderModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowNewFolderModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Nouveau dossier</Text>
+            <TextInput
+              style={styles.modalInput}
+              placeholder="Nom du dossier"
+              placeholderTextColor={colors.textMuted}
+              value={newFolderName}
+              onChangeText={setNewFolderName}
+              autoFocus
+            />
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={styles.modalButtonCancel}
+                onPress={() => {
+                  setShowNewFolderModal(false);
+                  setNewFolderName('');
+                }}
+              >
+                <Text style={styles.modalButtonCancelText}>Annuler</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.modalButtonConfirm}
+                onPress={handleCreateFolder}
+              >
+                <Text style={styles.modalButtonConfirmText}>Créer</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -194,6 +363,16 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 16,
+    color: colors.textMuted,
+    fontSize: 14,
   },
   header: {
     flexDirection: 'row',
@@ -229,8 +408,12 @@ const styles = StyleSheet.create({
     backgroundColor: colors.cardBgAlt,
   },
   folderInfoText: {
+    flex: 1,
     color: colors.textMuted,
     fontSize: 14,
+  },
+  addButton: {
+    padding: 8,
   },
   filesContainer: {
     flex: 1,
@@ -260,5 +443,79 @@ const styles = StyleSheet.create({
     marginTop: 16,
     color: colors.textMuted,
     fontSize: 16,
+  },
+  createFolderButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 20,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    backgroundColor: colors.accentGradientStart,
+    borderRadius: borderRadius.md,
+  },
+  createFolderText: {
+    color: colors.white,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  // Modal styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    width: SCREEN_WIDTH - 60,
+    backgroundColor: colors.cardLight,
+    borderRadius: borderRadius.lg,
+    padding: 24,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: colors.textDark,
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  modalInput: {
+    backgroundColor: colors.white,
+    borderRadius: borderRadius.sm,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontSize: 16,
+    color: colors.textDark,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.1)',
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 20,
+  },
+  modalButtonCancel: {
+    flex: 1,
+    paddingVertical: 12,
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.05)',
+    borderRadius: borderRadius.sm,
+  },
+  modalButtonCancelText: {
+    color: colors.textMuted,
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  modalButtonConfirm: {
+    flex: 1,
+    paddingVertical: 12,
+    alignItems: 'center',
+    backgroundColor: colors.accentGradientStart,
+    borderRadius: borderRadius.sm,
+  },
+  modalButtonConfirmText: {
+    color: colors.white,
+    fontSize: 16,
+    fontWeight: '600',
   },
 });

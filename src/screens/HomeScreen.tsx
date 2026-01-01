@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -8,11 +8,14 @@ import {
   Vibration,
   SafeAreaView,
   Dimensions,
+  ActivityIndicator,
+  Alert,
+  RefreshControl,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useTranslation } from 'react-i18next';
 import { Feather } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 import { SearchBar, ProgressBar, FileItem } from '../components';
@@ -20,40 +23,24 @@ import {
   FolderIcon,
   ImageIcon,
   AudioIcon,
-  ChartIcon,
   DocumentIcon,
   ArchiveIcon,
+  AppIcon,
   MenuIcon,
 } from '../components/FileIcons';
 import { colors, gradients, borderRadius, neuShadow } from '../theme/colors';
-import { StorageService } from '../services/storage';
+import { FileSystemService, StorageInfo } from '../services/fileSystem';
 import { FileItem as FileItemType } from '../types';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 type RootStackParamList = {
   Home: undefined;
-  Folder: { folderId: string; folderName: string };
+  Folder: { folderId: string; folderName: string; path: string };
   FileDetail: { file: FileItemType };
 };
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
-
-// Données de démonstration des fichiers
-const DEMO_FILES: FileItemType[] = [
-  { id: '1', name: 'Documents', extension: '', type: 'folder' },
-  { id: '2', name: 'Images', extension: '', type: 'folder' },
-  { id: '3', name: 'Musique', extension: '', type: 'folder' },
-  { id: '4', name: 'Téléchargements', extension: '', type: 'folder' },
-  { id: '5', name: 'Vidéos', extension: '', type: 'folder' },
-  { id: '6', name: 'Archives', extension: '', type: 'folder' },
-  { id: '7', name: 'Vacances', extension: '.jpeg', type: 'image' },
-  { id: '8', name: 'Podcast', extension: '.mp3', type: 'audio' },
-  { id: '9', name: 'Budget', extension: '.xlsx', type: 'document' },
-  { id: '10', name: 'Rapport', extension: '.docx', type: 'document' },
-  { id: '11', name: 'Backup', extension: '.zip', type: 'archive' },
-  { id: '12', name: 'Notes', extension: '.txt', type: 'document' },
-];
 
 function getFileIcon(type: FileItemType['type'], size = 40) {
   switch (type) {
@@ -65,6 +52,8 @@ function getFileIcon(type: FileItemType['type'], size = 40) {
       return <AudioIcon size={size} />;
     case 'archive':
       return <ArchiveIcon size={size} />;
+    case 'app':
+      return <AppIcon size={size} />;
     case 'document':
     default:
       return <DocumentIcon size={size} />;
@@ -74,13 +63,84 @@ function getFileIcon(type: FileItemType['type'], size = 40) {
 export function HomeScreen() {
   const { t } = useTranslation();
   const navigation = useNavigation<NavigationProp>();
+
   const [searchQuery, setSearchQuery] = useState('');
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [hasPermission, setHasPermission] = useState(false);
+  const [files, setFiles] = useState<FileItemType[]>([]);
+  const [storageInfo, setStorageInfo] = useState<StorageInfo | null>(null);
+  const [totalFiles, setTotalFiles] = useState(0);
+  const [totalFolders, setTotalFolders] = useState(0);
 
-  const folderStats = StorageService.getFolderStats();
-  const storageInfo = StorageService.getStorageInfo();
+  // Charger les données au démarrage
+  useEffect(() => {
+    initializeApp();
+  }, []);
 
-  const filteredFiles = DEMO_FILES.filter((file) =>
+  // Recharger quand l'écran revient au focus
+  useFocusEffect(
+    useCallback(() => {
+      if (hasPermission) {
+        loadFiles();
+      }
+    }, [hasPermission])
+  );
+
+  const initializeApp = async () => {
+    setIsLoading(true);
+    try {
+      // Demander les permissions
+      const granted = await FileSystemService.requestPermissions();
+      setHasPermission(granted);
+
+      if (!granted) {
+        Alert.alert(
+          'Permissions requises',
+          'Cette application a besoin d\'accéder à vos fichiers pour fonctionner.',
+          [
+            { text: 'Réessayer', onPress: initializeApp },
+            { text: 'Annuler', style: 'cancel' },
+          ]
+        );
+      }
+
+      // Charger les données
+      await Promise.all([loadFiles(), loadStorageInfo()]);
+    } catch (error) {
+      console.error('Error initializing app:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const loadFiles = async () => {
+    try {
+      const rootDirs = await FileSystemService.getRootDirectories();
+      setFiles(rootDirs);
+      setTotalFolders(rootDirs.filter(f => f.type === 'folder').length);
+      setTotalFiles(rootDirs.filter(f => f.type !== 'folder').length);
+    } catch (error) {
+      console.error('Error loading files:', error);
+    }
+  };
+
+  const loadStorageInfo = async () => {
+    try {
+      const info = await FileSystemService.getStorageInfo();
+      setStorageInfo(info);
+    } catch (error) {
+      console.error('Error loading storage info:', error);
+    }
+  };
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    await Promise.all([loadFiles(), loadStorageInfo()]);
+    setIsRefreshing(false);
+  };
+
+  const filteredFiles = files.filter((file) =>
     file.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
@@ -90,26 +150,65 @@ export function HomeScreen() {
 
   const handleVoiceSearch = useCallback(() => {
     Vibration.vibrate(50);
+    // TODO: Implémenter la recherche vocale
   }, []);
 
   const handleFilePress = useCallback((file: FileItemType) => {
     Vibration.vibrate(10);
-    if (file.type === 'folder') {
-      navigation.navigate('Folder', { folderId: file.id, folderName: file.name });
-    } else {
+    if (file.type === 'folder' && file.path) {
+      navigation.navigate('Folder', {
+        folderId: file.id,
+        folderName: file.name,
+        path: file.path,
+      });
+    } else if (file.path) {
       navigation.navigate('FileDetail', { file });
     }
   }, [navigation]);
 
   const handleFileLongPress = useCallback((file: FileItemType) => {
     Vibration.vibrate(50);
-    // TODO: Afficher menu contextuel (copier, déplacer, supprimer, etc.)
-  }, []);
+    Alert.alert(
+      file.name,
+      'Que voulez-vous faire ?',
+      [
+        { text: 'Ouvrir', onPress: () => handleFilePress(file) },
+        {
+          text: 'Partager',
+          onPress: async () => {
+            if (file.path) {
+              await FileSystemService.share(file.path);
+            }
+          },
+        },
+        { text: 'Annuler', style: 'cancel' },
+      ]
+    );
+  }, [handleFilePress]);
 
   const toggleMenu = useCallback(() => {
     Vibration.vibrate(10);
-    setIsMenuOpen(!isMenuOpen);
-  }, [isMenuOpen]);
+    Alert.alert(
+      'Menu',
+      'Options',
+      [
+        { text: 'Actualiser', onPress: handleRefresh },
+        { text: 'Paramètres', onPress: () => {} },
+        { text: 'Annuler', style: 'cancel' },
+      ]
+    );
+  }, []);
+
+  if (isLoading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={colors.accentGradientStart} />
+          <Text style={styles.loadingText}>Chargement des fichiers...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -138,15 +237,12 @@ export function HomeScreen() {
             colors={gradients.accent as [string, string]}
             style={styles.storageIcon}
           >
-            <Feather name="folder" size={24} color={colors.white} />
+            <Feather name="hard-drive" size={24} color={colors.white} />
           </LinearGradient>
           <View style={styles.storageText}>
             <Text style={styles.storageTitle}>{t('files.myDocs')}</Text>
             <Text style={styles.storageSubtitle}>
-              {t('files.filesAndFolders', {
-                files: folderStats.totalFiles,
-                folders: folderStats.totalFolders,
-              })}
+              {totalFiles} fichiers, {totalFolders} dossiers
             </Text>
           </View>
         </View>
@@ -154,8 +250,8 @@ export function HomeScreen() {
         {/* Barre de progression */}
         <View style={styles.progressContainer}>
           <ProgressBar
-            progress={storageInfo.percentage}
-            label={t('files.freeSpace', { space: `${storageInfo.free} GB` })}
+            progress={storageInfo?.usedPercentage || 0}
+            label={`${storageInfo?.freeSpaceFormatted || '...'} disponible`}
           />
         </View>
       </LinearGradient>
@@ -165,6 +261,13 @@ export function HomeScreen() {
         <ScrollView
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.filesScrollContent}
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefreshing}
+              onRefresh={handleRefresh}
+              tintColor={colors.accentGradientStart}
+            />
+          }
         >
           <View style={styles.filesGrid}>
             {filteredFiles.map((file) => (
@@ -181,10 +284,22 @@ export function HomeScreen() {
             ))}
           </View>
 
-          {filteredFiles.length === 0 && (
+          {filteredFiles.length === 0 && !isLoading && (
             <View style={styles.emptyState}>
-              <Feather name="search" size={48} color={colors.textMuted} />
-              <Text style={styles.emptyText}>Aucun fichier trouvé</Text>
+              <Feather name="folder" size={48} color={colors.textMuted} />
+              <Text style={styles.emptyText}>
+                {searchQuery ? 'Aucun fichier trouvé' : 'Aucun dossier accessible'}
+              </Text>
+              {!hasPermission && (
+                <TouchableOpacity
+                  style={styles.permissionButton}
+                  onPress={initializeApp}
+                >
+                  <Text style={styles.permissionButtonText}>
+                    Autoriser l'accès aux fichiers
+                  </Text>
+                </TouchableOpacity>
+              )}
             </View>
           )}
         </ScrollView>
@@ -197,6 +312,16 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 16,
+    color: colors.textMuted,
+    fontSize: 14,
   },
   header: {
     paddingHorizontal: 20,
@@ -251,7 +376,7 @@ const styles = StyleSheet.create({
   },
   filesScrollContent: {
     paddingHorizontal: 16,
-    paddingBottom: 100,
+    paddingBottom: 120,
   },
   filesGrid: {
     flexDirection: 'row',
@@ -270,5 +395,18 @@ const styles = StyleSheet.create({
     marginTop: 16,
     color: colors.textMuted,
     fontSize: 16,
+    textAlign: 'center',
+  },
+  permissionButton: {
+    marginTop: 20,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    backgroundColor: colors.accentGradientStart,
+    borderRadius: borderRadius.md,
+  },
+  permissionButtonText: {
+    color: colors.white,
+    fontSize: 14,
+    fontWeight: '600',
   },
 });

@@ -3,10 +3,14 @@ export interface FileItem {
   name: string;
   extension: string;
   type: 'folder' | 'image' | 'audio' | 'document' | 'archive' | 'link' | 'app' | 'unknown';
+  path?: string;
   size?: number;
   modifiedAt?: Date;
   createdAt?: Date;
   isRecent?: boolean;
+  isMediaLibrary?: boolean;
+  isMediaAsset?: boolean;
+  isExternal?: boolean;
 }
 
 export interface FolderStats {
