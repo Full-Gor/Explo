@@ -13,6 +13,8 @@ export interface FileItem {
   isExternal?: boolean;
   thumbnailUri?: string;
   localUri?: string;
+  itemCount?: number;
+  folderColor?: string;
 }
 
 export interface FolderStats {

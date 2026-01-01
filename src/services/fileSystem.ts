@@ -175,23 +175,27 @@ class FileSystemServiceClass {
 
     // Documents de l'app
     if (this.rootDirectories.documents) {
+      const docCount = await this.countFilesInDirectory(this.rootDirectories.documents);
       directories.push({
         id: 'documents',
         name: 'Documents',
         extension: '',
         type: 'folder',
         path: this.rootDirectories.documents,
+        itemCount: docCount,
       });
     }
 
     // Cache de l'app
     if (this.rootDirectories.cache) {
+      const cacheCount = await this.countFilesInDirectory(this.rootDirectories.cache);
       directories.push({
         id: 'cache',
         name: 'Cache',
         extension: '',
         type: 'folder',
         path: this.rootDirectories.cache,
+        itemCount: cacheCount,
       });
     }
 
@@ -199,6 +203,8 @@ class FileSystemServiceClass {
     try {
       const hasPermission = await this.checkPermissions();
       if (hasPermission) {
+        // Compter les photos
+        const photoCount = await this.countMediaAssets(MediaLibrary.MediaType.photo);
         directories.push({
           id: 'photos',
           name: 'Photos',
@@ -206,8 +212,11 @@ class FileSystemServiceClass {
           type: 'folder',
           path: 'media://photos',
           isMediaLibrary: true,
+          itemCount: photoCount,
         });
 
+        // Compter les vidéos
+        const videoCount = await this.countMediaAssets(MediaLibrary.MediaType.video);
         directories.push({
           id: 'videos',
           name: 'Vidéos',
@@ -215,8 +224,11 @@ class FileSystemServiceClass {
           type: 'folder',
           path: 'media://videos',
           isMediaLibrary: true,
+          itemCount: videoCount,
         });
 
+        // Compter les audios
+        const audioCount = await this.countMediaAssets(MediaLibrary.MediaType.audio);
         directories.push({
           id: 'audio',
           name: 'Audio',
@@ -224,6 +236,18 @@ class FileSystemServiceClass {
           type: 'folder',
           path: 'media://audio',
           isMediaLibrary: true,
+          itemCount: audioCount,
+        });
+
+        // Documents - PDF, DOC, TXT, etc.
+        directories.push({
+          id: 'docs',
+          name: 'Mes Documents',
+          extension: '',
+          type: 'folder',
+          path: 'docs://all',
+          isMediaLibrary: false,
+          itemCount: 0, // Sera calculé dynamiquement
         });
       }
     } catch (error) {
@@ -239,18 +263,50 @@ class FileSystemServiceClass {
       if (!downloadInfo.exists) {
         await FileSystem.makeDirectoryAsync(downloadPath, { intermediates: true });
       }
+      const dlCount = await this.countFilesInDirectory(downloadPath);
       directories.push({
         id: 'downloads',
         name: 'Téléchargements',
         extension: '',
         type: 'folder',
         path: downloadPath,
+        itemCount: dlCount,
       });
     } catch (error) {
       console.log('Could not create Downloads folder:', error);
     }
 
     return directories;
+  }
+
+  /**
+   * Compte les fichiers dans un dossier
+   */
+  async countFilesInDirectory(path: string): Promise<number> {
+    try {
+      const dirInfo = await FileSystem.getInfoAsync(path);
+      if (!dirInfo.exists) return 0;
+
+      const contents = await FileSystem.readDirectoryAsync(path);
+      return contents.filter(item => !item.startsWith('.')).length;
+    } catch (error) {
+      return 0;
+    }
+  }
+
+  /**
+   * Compte les assets média d'un type donné
+   */
+  async countMediaAssets(mediaType: MediaLibrary.MediaTypeValue): Promise<number> {
+    try {
+      const result = await MediaLibrary.getAssetsAsync({
+        mediaType,
+        first: 1, // On veut juste le total
+      });
+      return result.totalCount;
+    } catch (error) {
+      return 0;
+    }
   }
 
   /**
@@ -265,6 +321,11 @@ class FileSystemServiceClass {
       // Si c'est un chemin media library
       if (path.startsWith('media://')) {
         return this.listMediaLibrary(path);
+      }
+
+      // Si c'est un chemin documents
+      if (path.startsWith('docs://')) {
+        return this.listDocumentFiles();
       }
 
       // Vérifier si le dossier existe
@@ -383,13 +444,105 @@ class FileSystemServiceClass {
   }
 
   /**
+   * Liste tous les fichiers documents (PDF, DOC, TXT, etc.)
+   */
+  private async listDocumentFiles(): Promise<DirectoryInfo> {
+    const files: FileItem[] = [];
+    const documentExtensions = [
+      '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+      '.txt', '.rtf', '.csv', '.json', '.xml', '.html', '.md',
+      '.odt', '.ods', '.odp'
+    ];
+
+    try {
+      // Parcourir les dossiers accessibles pour trouver les documents
+      const documentPaths = [
+        FileSystem.documentDirectory,
+        FileSystem.documentDirectory + 'Downloads/',
+      ];
+
+      for (const basePath of documentPaths) {
+        if (!basePath) continue;
+
+        try {
+          const dirInfo = await FileSystem.getInfoAsync(basePath);
+          if (!dirInfo.exists) continue;
+
+          const contents = await FileSystem.readDirectoryAsync(basePath);
+
+          for (const item of contents) {
+            if (item.startsWith('.')) continue;
+
+            const itemPath = basePath.endsWith('/') ? `${basePath}${item}` : `${basePath}/${item}`;
+            const extension = getFileExtension(item).toLowerCase();
+
+            // Vérifier si c'est un document
+            if (documentExtensions.includes(extension)) {
+              try {
+                const info = await FileSystem.getInfoAsync(itemPath);
+
+                files.push({
+                  id: itemPath,
+                  name: item.replace(/\.[^.]+$/, ''),
+                  extension,
+                  type: 'document',
+                  path: itemPath,
+                  size: (info as any).size || 0,
+                  modifiedAt: (info as any).modificationTime
+                    ? new Date((info as any).modificationTime * 1000)
+                    : undefined,
+                });
+              } catch (itemError) {
+                console.warn(`Error getting info for ${item}:`, itemError);
+              }
+            }
+          }
+        } catch (pathError) {
+          console.warn(`Error reading path ${basePath}:`, pathError);
+        }
+      }
+
+      // Trier par date de modification (plus récent en premier)
+      files.sort((a, b) => {
+        if (a.modifiedAt && b.modifiedAt) {
+          return b.modifiedAt.getTime() - a.modifiedAt.getTime();
+        }
+        return a.name.localeCompare(b.name);
+      });
+
+    } catch (error) {
+      console.error('Error listing document files:', error);
+    }
+
+    return {
+      files,
+      totalFiles: files.length,
+      totalFolders: 0,
+      path: 'docs://all',
+    };
+  }
+
+  /**
    * Crée un nouveau dossier
    */
   async createFolder(parentPath: string, folderName: string): Promise<boolean> {
     try {
-      const newPath = `${parentPath}/${folderName}`;
+      // S'assurer que le chemin parent ne se termine pas déjà par un slash
+      const cleanParentPath = parentPath.endsWith('/') ? parentPath.slice(0, -1) : parentPath;
+      const newPath = `${cleanParentPath}/${folderName}`;
+
+      // Vérifier si le dossier existe déjà
+      const existingInfo = await FileSystem.getInfoAsync(newPath);
+      if (existingInfo.exists) {
+        console.log('Folder already exists:', newPath);
+        return false;
+      }
+
       await FileSystem.makeDirectoryAsync(newPath, { intermediates: true });
-      return true;
+
+      // Vérifier que le dossier a bien été créé
+      const newInfo = await FileSystem.getInfoAsync(newPath);
+      return newInfo.exists;
     } catch (error) {
       console.error('Error creating folder:', error);
       return false;

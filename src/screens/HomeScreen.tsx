@@ -17,6 +17,7 @@ import { useTranslation } from 'react-i18next';
 import { Feather } from '@expo/vector-icons';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { SearchBar, ProgressBar, FileItem } from '../components';
 import {
@@ -33,6 +34,8 @@ import { colors, gradients, borderRadius, neuShadow } from '../theme/colors';
 import { FileSystemService, StorageInfo } from '../services/fileSystem';
 import { FileItem as FileItemType } from '../types';
 
+const FOLDER_COLORS_STORAGE_KEY = 'folder_colors';
+
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 type RootStackParamList = {
@@ -43,10 +46,10 @@ type RootStackParamList = {
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
-function getFileIcon(type: FileItemType['type'], size = 40) {
+function getFileIcon(type: FileItemType['type'], size = 40, folderColor?: string) {
   switch (type) {
     case 'folder':
-      return <FolderIcon size={size} />;
+      return <FolderIcon size={size} color={folderColor} />;
     case 'image':
       return <ImageIcon size={size} />;
     case 'video':
@@ -75,10 +78,24 @@ export function HomeScreen() {
   const [storageInfo, setStorageInfo] = useState<StorageInfo | null>(null);
   const [totalFiles, setTotalFiles] = useState(0);
   const [totalFolders, setTotalFolders] = useState(0);
+  const [folderColors, setFolderColors] = useState<Record<string, string>>({});
+
+  // Charger les couleurs des dossiers
+  const loadFolderColors = async () => {
+    try {
+      const stored = await AsyncStorage.getItem(FOLDER_COLORS_STORAGE_KEY);
+      if (stored) {
+        setFolderColors(JSON.parse(stored));
+      }
+    } catch (error) {
+      console.error('Error loading folder colors:', error);
+    }
+  };
 
   // Charger les données au démarrage
   useEffect(() => {
     initializeApp();
+    loadFolderColors();
   }, []);
 
   // Recharger quand l'écran revient au focus
@@ -87,6 +104,7 @@ export function HomeScreen() {
       if (hasPermission) {
         loadFiles();
       }
+      loadFolderColors();
     }, [hasPermission])
   );
 
@@ -278,8 +296,9 @@ export function HomeScreen() {
                 <FileItem
                   name={file.name}
                   extension={file.extension}
-                  icon={getFileIcon(file.type)}
+                  icon={getFileIcon(file.type, 40, file.path ? folderColors[file.path] : undefined)}
                   thumbnailUri={file.thumbnailUri}
+                  itemCount={file.type === 'folder' ? file.itemCount : undefined}
                   onPress={() => handleFilePress(file)}
                   onLongPress={() => handleFileLongPress(file)}
                   variant="solid"

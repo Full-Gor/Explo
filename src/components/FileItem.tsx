@@ -16,6 +16,7 @@ interface Props {
   extension: string;
   icon: React.ReactNode;
   thumbnailUri?: string;
+  itemCount?: number;
   onPress?: () => void;
   onLongPress?: () => void;
   variant?: 'solid' | 'glass';
@@ -26,6 +27,7 @@ export function FileItem({
   extension,
   icon,
   thumbnailUri,
+  itemCount,
   onPress,
   onLongPress,
   variant = 'solid',
@@ -100,7 +102,7 @@ export function FileItem({
           {name}
         </Text>
         <Text style={[styles.extension, isGlass && styles.glassExtension]}>
-          {extension}
+          {itemCount !== undefined ? `${itemCount} fichiers` : extension}
         </Text>
       </TouchableOpacity>
     </Animated.View>

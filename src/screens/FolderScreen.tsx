@@ -17,6 +17,7 @@ import {
 import { Feather } from '@expo/vector-icons';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { SearchBar, FileItem } from '../components';
 import {
@@ -32,6 +33,24 @@ import { colors, borderRadius } from '../theme/colors';
 import { FileSystemService } from '../services/fileSystem';
 import { FileItem as FileItemType } from '../types';
 
+// Couleurs disponibles pour les dossiers
+const FOLDER_COLORS = [
+  colors.folderOrange,
+  '#FF6B6B', // Rouge
+  '#4ECDC4', // Turquoise
+  '#45B7D1', // Bleu clair
+  '#96CEB4', // Vert menthe
+  '#9B59B6', // Violet
+  '#3498DB', // Bleu
+  '#E74C3C', // Rouge vif
+  '#2ECC71', // Vert
+  '#F39C12', // Orange
+  '#1ABC9C', // Teal
+  '#E91E63', // Pink
+];
+
+const FOLDER_COLORS_STORAGE_KEY = 'folder_colors';
+
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 type RootStackParamList = {
@@ -43,10 +62,10 @@ type RootStackParamList = {
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 type FolderRouteProp = RouteProp<RootStackParamList, 'Folder'>;
 
-function getFileIcon(type: FileItemType['type'], size = 40) {
+function getFileIcon(type: FileItemType['type'], size = 40, folderColor?: string) {
   switch (type) {
     case 'folder':
-      return <FolderIcon size={size} />;
+      return <FolderIcon size={size} color={folderColor} />;
     case 'image':
       return <ImageIcon size={size} />;
     case 'video':
@@ -86,10 +105,38 @@ export function FolderScreen() {
   // Modal pour créer un dossier
   const [showNewFolderModal, setShowNewFolderModal] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
+  const [selectedColor, setSelectedColor] = useState(FOLDER_COLORS[0]);
+  const [folderColors, setFolderColors] = useState<Record<string, string>>({});
+
+  // Charger les couleurs des dossiers
+  useEffect(() => {
+    loadFolderColors();
+  }, []);
 
   useEffect(() => {
     loadDirectory();
   }, [path]);
+
+  const loadFolderColors = async () => {
+    try {
+      const stored = await AsyncStorage.getItem(FOLDER_COLORS_STORAGE_KEY);
+      if (stored) {
+        setFolderColors(JSON.parse(stored));
+      }
+    } catch (error) {
+      console.error('Error loading folder colors:', error);
+    }
+  };
+
+  const saveFolderColor = async (folderPath: string, color: string) => {
+    try {
+      const newColors = { ...folderColors, [folderPath]: color };
+      await AsyncStorage.setItem(FOLDER_COLORS_STORAGE_KEY, JSON.stringify(newColors));
+      setFolderColors(newColors);
+    } catch (error) {
+      console.error('Error saving folder color:', error);
+    }
+  };
 
   const loadDirectory = async () => {
     setIsLoading(true);
@@ -209,12 +256,18 @@ export function FolderScreen() {
     try {
       const success = await FileSystemService.createFolder(path, newFolderName.trim());
       if (success) {
+        // Sauvegarder la couleur du dossier
+        const cleanPath = path.endsWith('/') ? path.slice(0, -1) : path;
+        const newFolderPath = `${cleanPath}/${newFolderName.trim()}`;
+        await saveFolderColor(newFolderPath, selectedColor);
+
         setShowNewFolderModal(false);
         setNewFolderName('');
+        setSelectedColor(FOLDER_COLORS[0]);
         await loadDirectory();
         Alert.alert('Succès', 'Dossier créé avec succès');
       } else {
-        Alert.alert('Erreur', 'Impossible de créer le dossier');
+        Alert.alert('Erreur', 'Impossible de créer le dossier. Il existe peut-être déjà.');
       }
     } catch (error) {
       Alert.alert('Erreur', 'Une erreur est survenue lors de la création du dossier');
@@ -309,7 +362,7 @@ export function FolderScreen() {
                 <FileItem
                   name={file.name}
                   extension={file.extension}
-                  icon={getFileIcon(file.type)}
+                  icon={getFileIcon(file.type, 40, file.path ? folderColors[file.path] : undefined)}
                   thumbnailUri={file.thumbnailUri}
                   onPress={() => handleFilePress(file)}
                   onLongPress={() => handleFileLongPress(file)}
@@ -349,6 +402,12 @@ export function FolderScreen() {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Nouveau dossier</Text>
+
+            {/* Aperçu du dossier */}
+            <View style={styles.folderPreview}>
+              <FolderIcon size={60} color={selectedColor} />
+            </View>
+
             <TextInput
               style={styles.modalInput}
               placeholder="Nom du dossier"
@@ -357,12 +416,34 @@ export function FolderScreen() {
               onChangeText={setNewFolderName}
               autoFocus
             />
+
+            {/* Sélecteur de couleur */}
+            <Text style={styles.colorPickerLabel}>Couleur du dossier</Text>
+            <View style={styles.colorPicker}>
+              {FOLDER_COLORS.map((color) => (
+                <TouchableOpacity
+                  key={color}
+                  style={[
+                    styles.colorOption,
+                    { backgroundColor: color },
+                    selectedColor === color && styles.colorOptionSelected,
+                  ]}
+                  onPress={() => setSelectedColor(color)}
+                >
+                  {selectedColor === color && (
+                    <Feather name="check" size={16} color={colors.white} />
+                  )}
+                </TouchableOpacity>
+              ))}
+            </View>
+
             <View style={styles.modalButtons}>
               <TouchableOpacity
                 style={styles.modalButtonCancel}
                 onPress={() => {
                   setShowNewFolderModal(false);
                   setNewFolderName('');
+                  setSelectedColor(FOLDER_COLORS[0]);
                 }}
               >
                 <Text style={styles.modalButtonCancelText}>Annuler</Text>
@@ -539,5 +620,38 @@ const styles = StyleSheet.create({
     color: colors.white,
     fontSize: 16,
     fontWeight: '600',
+  },
+  folderPreview: {
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  colorPickerLabel: {
+    fontSize: 14,
+    color: colors.textMuted,
+    marginTop: 16,
+    marginBottom: 12,
+  },
+  colorPicker: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  colorOption: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  colorOptionSelected: {
+    borderWidth: 3,
+    borderColor: colors.white,
+    shadowColor: colors.black,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 4,
   },
 });
