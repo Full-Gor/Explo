@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -19,6 +19,7 @@ import { Feather } from '@expo/vector-icons';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as MediaLibrary from 'expo-media-library';
+import { Video, ResizeMode } from 'expo-av';
 
 import {
   ImageIcon,
@@ -172,10 +173,13 @@ export function FileDetailScreen() {
 
   const [showRenameModal, setShowRenameModal] = useState(false);
   const [showImageViewer, setShowImageViewer] = useState(false);
+  const [showVideoPlayer, setShowVideoPlayer] = useState(false);
   const [newName, setNewName] = useState(file.name);
   const [isDeleting, setIsDeleting] = useState(false);
   const [imageUri, setImageUri] = useState<string | null>(null);
-  const [isLoadingImage, setIsLoadingImage] = useState(false);
+  const [videoUri, setVideoUri] = useState<string | null>(null);
+  const [isLoadingMedia, setIsLoadingMedia] = useState(false);
+  const videoRef = useRef<Video>(null);
 
   const handleBack = useCallback(() => {
     Vibration.vibrate(10);
@@ -200,18 +204,30 @@ export function FileDetailScreen() {
 
   const handleOpen = useCallback(async () => {
     Vibration.vibrate(10);
+    setIsLoadingMedia(true);
+
+    // Obtenir l'URI locale
+    const uri = await getLocalUri();
+    const mediaUri = uri || file.path || null;
 
     // Pour les images, ouvrir le viewer plein écran
     if (file.type === 'image') {
-      setIsLoadingImage(true);
-      const uri = await getLocalUri();
-      setImageUri(uri || file.path || null);
+      setImageUri(mediaUri);
       setShowImageViewer(true);
-      setIsLoadingImage(false);
+      setIsLoadingMedia(false);
       return;
     }
 
-    // Pour les vidéos et audio, essayer d'ouvrir avec l'app par défaut
+    // Pour les vidéos, ouvrir le lecteur vidéo intégré
+    if (file.type === 'video') {
+      setVideoUri(mediaUri);
+      setShowVideoPlayer(true);
+      setIsLoadingMedia(false);
+      return;
+    }
+
+    // Pour les autres fichiers (audio, documents, etc.)
+    setIsLoadingMedia(false);
     if (file.path) {
       const mimeType = getMimeType(file.extension);
       const success = await FileSystemService.openFile(file.path, mimeType, file.isMediaAsset);
@@ -437,14 +453,14 @@ export function FileDetailScreen() {
 
       {/* Bouton principal */}
       <View style={styles.bottomAction}>
-        <TouchableOpacity onPress={handleOpen} activeOpacity={0.8} disabled={isLoadingImage}>
+        <TouchableOpacity onPress={handleOpen} activeOpacity={0.8} disabled={isLoadingMedia}>
           <LinearGradient
             colors={gradients.accent as [string, string]}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 0 }}
             style={styles.openButton}
           >
-            {isLoadingImage ? (
+            {isLoadingMedia ? (
               <ActivityIndicator color={colors.white} />
             ) : (
               <>
@@ -526,6 +542,59 @@ export function FileDetailScreen() {
               <Text style={styles.imageViewerButtonText}>Partager</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.imageViewerButton} onPress={handleDelete}>
+              <Feather name="trash-2" size={24} color={colors.audioRed} />
+              <Text style={[styles.imageViewerButtonText, { color: colors.audioRed }]}>Supprimer</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Modal Video Player */}
+      <Modal
+        visible={showVideoPlayer}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          setShowVideoPlayer(false);
+          videoRef.current?.stopAsync();
+        }}
+      >
+        <StatusBar hidden={showVideoPlayer} />
+        <View style={styles.videoPlayerContainer}>
+          <TouchableOpacity
+            style={styles.videoPlayerClose}
+            onPress={() => {
+              setShowVideoPlayer(false);
+              videoRef.current?.stopAsync();
+            }}
+          >
+            <Feather name="x" size={28} color={colors.white} />
+          </TouchableOpacity>
+
+          {videoUri && (
+            <Video
+              ref={videoRef}
+              source={{ uri: videoUri }}
+              style={styles.videoPlayer}
+              useNativeControls
+              resizeMode={ResizeMode.CONTAIN}
+              shouldPlay
+              isLooping={false}
+            />
+          )}
+
+          <View style={styles.videoPlayerActions}>
+            <TouchableOpacity style={styles.imageViewerButton} onPress={handleShare}>
+              <Feather name="share-2" size={24} color={colors.white} />
+              <Text style={styles.imageViewerButtonText}>Partager</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.imageViewerButton}
+              onPress={() => {
+                setShowVideoPlayer(false);
+                handleDelete();
+              }}
+            >
               <Feather name="trash-2" size={24} color={colors.audioRed} />
               <Text style={[styles.imageViewerButtonText, { color: colors.audioRed }]}>Supprimer</Text>
             </TouchableOpacity>
@@ -792,5 +861,32 @@ const styles = StyleSheet.create({
     color: colors.white,
     fontSize: 12,
     marginTop: 4,
+  },
+  // Video Player styles
+  videoPlayerContainer: {
+    flex: 1,
+    backgroundColor: '#000',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  videoPlayerClose: {
+    position: 'absolute',
+    top: 50,
+    right: 20,
+    zIndex: 10,
+    padding: 10,
+  },
+  videoPlayer: {
+    width: SCREEN_WIDTH,
+    height: SCREEN_HEIGHT - 200,
+  },
+  videoPlayerActions: {
+    position: 'absolute',
+    bottom: 50,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 40,
   },
 });
