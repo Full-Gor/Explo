@@ -437,13 +437,26 @@ export function FileDetailScreen() {
             // Pour les assets MediaLibrary
             if (file.isMediaAsset) {
               try {
-                const result = await MediaLibrary.deleteAssetsAsync([file.id]);
-                if (result) {
-                  navigation.goBack();
+                const result = await FileSystemService.deleteMediaAsset(file.id);
+
+                if (result.success) {
+                  Alert.alert(
+                    'Succès',
+                    'Fichier supprimé avec succès',
+                    [{ text: 'OK', onPress: () => navigation.goBack() }]
+                  );
+                } else if (result.requiresConfirmation) {
+                  // Sur Android 10+, l'utilisateur doit avoir confirmé dans la boîte de dialogue système
+                  Alert.alert(
+                    'Confirmation requise',
+                    'Veuillez confirmer la suppression dans la boîte de dialogue système qui s\'affiche.',
+                    [{ text: 'OK', onPress: () => navigation.goBack() }]
+                  );
                 } else {
-                  Alert.alert('Erreur', 'Impossible de supprimer ce fichier');
+                  Alert.alert('Erreur', 'Impossible de supprimer ce fichier. Vérifiez les permissions.');
                 }
               } catch (error) {
+                console.error('Delete error:', error);
                 Alert.alert('Erreur', 'Impossible de supprimer ce fichier. Vérifiez les permissions.');
               } finally {
                 setIsDeleting(false);
@@ -453,10 +466,19 @@ export function FileDetailScreen() {
 
             // Pour les fichiers normaux
             if (file.path) {
-              const success = await FileSystemService.delete(file.path);
-              if (success) {
-                navigation.goBack();
-              } else {
+              try {
+                const success = await FileSystemService.delete(file.path);
+                if (success) {
+                  Alert.alert(
+                    'Succès',
+                    'Fichier supprimé avec succès',
+                    [{ text: 'OK', onPress: () => navigation.goBack() }]
+                  );
+                } else {
+                  Alert.alert('Erreur', 'Impossible de supprimer ce fichier');
+                }
+              } catch (error) {
+                console.error('Delete error:', error);
                 Alert.alert('Erreur', 'Impossible de supprimer ce fichier');
               }
             }

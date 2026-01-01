@@ -554,11 +554,64 @@ class FileSystemServiceClass {
    */
   async delete(path: string): Promise<boolean> {
     try {
+      // Vérifier d'abord si le fichier/dossier existe
+      const info = await FileSystem.getInfoAsync(path);
+      if (!info.exists) {
+        console.log('File does not exist:', path);
+        return true; // Considéré comme succès si le fichier n'existe déjà pas
+      }
+
       await FileSystem.deleteAsync(path, { idempotent: true });
-      return true;
+
+      // Vérifier que la suppression a réussi
+      const checkInfo = await FileSystem.getInfoAsync(path);
+      return !checkInfo.exists;
     } catch (error) {
       console.error('Error deleting:', error);
       return false;
+    }
+  }
+
+  /**
+   * Supprime un asset MediaLibrary
+   */
+  async deleteMediaAsset(assetId: string): Promise<{ success: boolean; requiresConfirmation?: boolean }> {
+    try {
+      // Vérifier les permissions
+      const hasPermission = await this.checkPermissions();
+      if (!hasPermission) {
+        console.error('No permission to delete media assets');
+        return { success: false };
+      }
+
+      // Essayer de supprimer l'asset
+      const result = await MediaLibrary.deleteAssetsAsync([assetId]);
+
+      // Sur Android 10+, deleteAssetsAsync retourne true si la demande a été envoyée
+      // mais l'utilisateur doit confirmer. On vérifie si l'asset existe encore.
+      if (result === true) {
+        // Attendre un peu pour que la suppression soit traitée
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+        // Vérifier si l'asset existe encore
+        try {
+          const asset = await MediaLibrary.getAssetInfoAsync(assetId);
+          if (asset) {
+            // L'asset existe encore, la suppression a peut-être été annulée ou nécessite confirmation
+            return { success: false, requiresConfirmation: true };
+          }
+        } catch {
+          // L'asset n'existe plus, suppression réussie
+          return { success: true };
+        }
+
+        return { success: true };
+      }
+
+      return { success: false };
+    } catch (error) {
+      console.error('Error deleting media asset:', error);
+      return { success: false };
     }
   }
 
