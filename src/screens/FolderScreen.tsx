@@ -190,33 +190,49 @@ export function FolderScreen() {
     );
   };
 
+  // Vérifie si le chemin permet la création de dossiers
+  const isMediaLibraryPath = path.startsWith('media://');
+  const canCreateFolder = !isMediaLibraryPath;
+
   const handleCreateFolder = async () => {
     if (!newFolderName.trim()) {
       Alert.alert('Erreur', 'Veuillez entrer un nom de dossier');
       return;
     }
 
-    const success = await FileSystemService.createFolder(path, newFolderName.trim());
-    if (success) {
+    if (isMediaLibraryPath) {
+      Alert.alert('Non supporté', 'Impossible de créer un dossier dans cette zone.');
       setShowNewFolderModal(false);
-      setNewFolderName('');
-      await loadDirectory();
-    } else {
-      Alert.alert('Erreur', 'Impossible de créer le dossier');
+      return;
+    }
+
+    try {
+      const success = await FileSystemService.createFolder(path, newFolderName.trim());
+      if (success) {
+        setShowNewFolderModal(false);
+        setNewFolderName('');
+        await loadDirectory();
+        Alert.alert('Succès', 'Dossier créé avec succès');
+      } else {
+        Alert.alert('Erreur', 'Impossible de créer le dossier');
+      }
+    } catch (error) {
+      Alert.alert('Erreur', 'Une erreur est survenue lors de la création du dossier');
     }
   };
 
   const handleMoreOptions = () => {
     Vibration.vibrate(10);
-    Alert.alert(
-      'Options',
-      folderName,
-      [
-        { text: 'Nouveau dossier', onPress: () => setShowNewFolderModal(true) },
-        { text: 'Actualiser', onPress: handleRefresh },
-        { text: 'Annuler', style: 'cancel' },
-      ]
-    );
+
+    const options: { text: string; onPress?: () => void; style?: 'cancel' | 'destructive' }[] = [];
+
+    if (canCreateFolder) {
+      options.push({ text: 'Nouveau dossier', onPress: () => setShowNewFolderModal(true) });
+    }
+    options.push({ text: 'Actualiser', onPress: handleRefresh });
+    options.push({ text: 'Annuler', style: 'cancel' });
+
+    Alert.alert('Options', folderName, options);
   };
 
   if (isLoading) {
@@ -264,12 +280,14 @@ export function FolderScreen() {
         <Text style={styles.folderInfoText}>
           {totalFolders} dossiers, {totalFiles} fichiers
         </Text>
-        <TouchableOpacity
-          onPress={() => setShowNewFolderModal(true)}
-          style={styles.addButton}
-        >
-          <Feather name="folder-plus" size={20} color={colors.accentGradientStart} />
-        </TouchableOpacity>
+        {canCreateFolder && (
+          <TouchableOpacity
+            onPress={() => setShowNewFolderModal(true)}
+            style={styles.addButton}
+          >
+            <Feather name="folder-plus" size={20} color={colors.accentGradientStart} />
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* Grille des fichiers */}
@@ -307,7 +325,7 @@ export function FolderScreen() {
               <Text style={styles.emptyText}>
                 {searchQuery ? 'Aucun résultat' : 'Dossier vide'}
               </Text>
-              {!searchQuery && (
+              {!searchQuery && canCreateFolder && (
                 <TouchableOpacity
                   style={styles.createFolderButton}
                   onPress={() => setShowNewFolderModal(true)}

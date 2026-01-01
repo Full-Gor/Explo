@@ -12,10 +12,13 @@ import {
   Modal,
   Dimensions,
   Image,
+  StatusBar,
+  ActivityIndicator,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as MediaLibrary from 'expo-media-library';
 
 import {
   ImageIcon,
@@ -29,7 +32,7 @@ import { colors, gradients, borderRadius, neuShadow } from '../theme/colors';
 import { FileSystemService } from '../services/fileSystem';
 import { FileItem as FileItemType } from '../types';
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 type RootStackParamList = {
   Home: undefined;
@@ -168,20 +171,52 @@ export function FileDetailScreen() {
   const { file } = route.params;
 
   const [showRenameModal, setShowRenameModal] = useState(false);
+  const [showImageViewer, setShowImageViewer] = useState(false);
   const [newName, setNewName] = useState(file.name);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [imageUri, setImageUri] = useState<string | null>(null);
+  const [isLoadingImage, setIsLoadingImage] = useState(false);
 
   const handleBack = useCallback(() => {
     Vibration.vibrate(10);
     navigation.goBack();
   }, [navigation]);
 
+  // Obtenir l'URI locale pour les assets média
+  const getLocalUri = async (): Promise<string | null> => {
+    if (!file.path) return null;
+
+    // Si c'est un asset MediaLibrary
+    if (file.isMediaAsset) {
+      try {
+        const assetInfo = await MediaLibrary.getAssetInfoAsync(file.id);
+        return assetInfo?.localUri || file.path;
+      } catch {
+        return file.path;
+      }
+    }
+    return file.path;
+  };
+
   const handleOpen = useCallback(async () => {
     Vibration.vibrate(10);
+
+    // Pour les images, ouvrir le viewer plein écran
+    if (file.type === 'image') {
+      setIsLoadingImage(true);
+      const uri = await getLocalUri();
+      setImageUri(uri || file.path || null);
+      setShowImageViewer(true);
+      setIsLoadingImage(false);
+      return;
+    }
+
+    // Pour les vidéos et audio, essayer d'ouvrir avec l'app par défaut
     if (file.path) {
       const mimeType = getMimeType(file.extension);
       const success = await FileSystemService.openFile(file.path, mimeType, file.isMediaAsset);
       if (!success) {
-        Alert.alert('Erreur', 'Impossible d\'ouvrir ce fichier');
+        Alert.alert('Erreur', 'Impossible d\'ouvrir ce fichier. Essayez de le partager.');
       }
     }
   }, [file]);
@@ -202,6 +237,13 @@ export function FileDetailScreen() {
       return;
     }
 
+    // Pour les assets MediaLibrary, le renommage n'est pas supporté
+    if (file.isMediaAsset) {
+      Alert.alert('Non supporté', 'Le renommage des fichiers média n\'est pas supporté par le système.');
+      setShowRenameModal(false);
+      return;
+    }
+
     if (file.path) {
       const success = await FileSystemService.rename(file.path, newName.trim());
       if (success) {
@@ -218,7 +260,7 @@ export function FileDetailScreen() {
     Vibration.vibrate(10);
     Alert.alert(
       'Déplacer',
-      'Cette fonctionnalité nécessite un sélecteur de dossier. À implémenter avec un navigateur de dossiers.',
+      'Cette fonctionnalité n\'est pas encore disponible.',
       [{ text: 'OK' }]
     );
   }, []);
@@ -227,7 +269,7 @@ export function FileDetailScreen() {
     Vibration.vibrate(10);
     Alert.alert(
       'Copier',
-      'Cette fonctionnalité nécessite un sélecteur de dossier de destination. À implémenter.',
+      'Cette fonctionnalité n\'est pas encore disponible.',
       [{ text: 'OK' }]
     );
   }, []);
@@ -243,6 +285,26 @@ export function FileDetailScreen() {
           text: 'Supprimer',
           style: 'destructive',
           onPress: async () => {
+            setIsDeleting(true);
+
+            // Pour les assets MediaLibrary
+            if (file.isMediaAsset) {
+              try {
+                const result = await MediaLibrary.deleteAssetsAsync([file.id]);
+                if (result) {
+                  navigation.goBack();
+                } else {
+                  Alert.alert('Erreur', 'Impossible de supprimer ce fichier');
+                }
+              } catch (error) {
+                Alert.alert('Erreur', 'Impossible de supprimer ce fichier. Vérifiez les permissions.');
+              } finally {
+                setIsDeleting(false);
+              }
+              return;
+            }
+
+            // Pour les fichiers normaux
             if (file.path) {
               const success = await FileSystemService.delete(file.path);
               if (success) {
@@ -251,13 +313,16 @@ export function FileDetailScreen() {
                 Alert.alert('Erreur', 'Impossible de supprimer ce fichier');
               }
             }
+            setIsDeleting(false);
           },
         },
       ]
     );
   }, [file, navigation]);
 
-  const isImage = file.type === 'image' && file.path;
+  const isImage = file.type === 'image';
+  const isVideo = file.type === 'video';
+  const displayUri = file.thumbnailUri || file.path;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -281,12 +346,22 @@ export function FileDetailScreen() {
           colors={gradients.darkCard as [string, string]}
           style={styles.previewCard}
         >
-          {isImage ? (
-            <Image
-              source={{ uri: file.path }}
-              style={styles.imagePreview}
-              resizeMode="contain"
-            />
+          {(isImage || isVideo) && displayUri ? (
+            <TouchableOpacity onPress={handleOpen} activeOpacity={0.8}>
+              <Image
+                source={{ uri: displayUri }}
+                style={styles.imagePreview}
+                resizeMode="contain"
+              />
+              {isVideo && (
+                <View style={styles.playOverlay}>
+                  <View style={styles.playButton}>
+                    <Feather name="play" size={40} color={colors.white} />
+                  </View>
+                </View>
+              )}
+              <Text style={styles.tapToOpen}>Appuyez pour ouvrir</Text>
+            </TouchableOpacity>
           ) : (
             <View style={styles.fileIconLarge}>
               {getFileIcon(file.type, 80)}
@@ -336,25 +411,47 @@ export function FileDetailScreen() {
           <View style={styles.actionsGrid}>
             <ActionButton icon="external-link" label="Ouvrir" onPress={handleOpen} />
             <ActionButton icon="share-2" label="Partager" onPress={handleShare} color={colors.syncBlue} />
-            <ActionButton icon="edit-2" label="Renommer" onPress={() => setShowRenameModal(true)} color={colors.folderOrange} />
+            <ActionButton
+              icon="edit-2"
+              label="Renommer"
+              onPress={() => {
+                if (file.isMediaAsset) {
+                  Alert.alert('Non supporté', 'Le renommage des fichiers média n\'est pas supporté.');
+                } else {
+                  setShowRenameModal(true);
+                }
+              }}
+              color={colors.folderOrange}
+            />
             <ActionButton icon="folder" label="Déplacer" onPress={handleMove} color={colors.audioPurple} />
             <ActionButton icon="copy" label="Copier" onPress={handleCopy} color={colors.success} />
-            <ActionButton icon="trash-2" label="Supprimer" onPress={handleDelete} color={colors.audioRed} />
+            <ActionButton
+              icon="trash-2"
+              label={isDeleting ? "..." : "Supprimer"}
+              onPress={handleDelete}
+              color={colors.audioRed}
+            />
           </View>
         </View>
       </ScrollView>
 
       {/* Bouton principal */}
       <View style={styles.bottomAction}>
-        <TouchableOpacity onPress={handleOpen} activeOpacity={0.8}>
+        <TouchableOpacity onPress={handleOpen} activeOpacity={0.8} disabled={isLoadingImage}>
           <LinearGradient
             colors={gradients.accent as [string, string]}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 0 }}
             style={styles.openButton}
           >
-            <Feather name="play" size={20} color={colors.white} />
-            <Text style={styles.openButtonText}>Ouvrir le fichier</Text>
+            {isLoadingImage ? (
+              <ActivityIndicator color={colors.white} />
+            ) : (
+              <>
+                <Feather name="play" size={20} color={colors.white} />
+                <Text style={styles.openButtonText}>Ouvrir le fichier</Text>
+              </>
+            )}
           </LinearGradient>
         </TouchableOpacity>
       </View>
@@ -398,6 +495,43 @@ export function FileDetailScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Modal Image Viewer */}
+      <Modal
+        visible={showImageViewer}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowImageViewer(false)}
+      >
+        <StatusBar hidden={showImageViewer} />
+        <View style={styles.imageViewerContainer}>
+          <TouchableOpacity
+            style={styles.imageViewerClose}
+            onPress={() => setShowImageViewer(false)}
+          >
+            <Feather name="x" size={28} color={colors.white} />
+          </TouchableOpacity>
+
+          {imageUri && (
+            <Image
+              source={{ uri: imageUri }}
+              style={styles.fullScreenImage}
+              resizeMode="contain"
+            />
+          )}
+
+          <View style={styles.imageViewerActions}>
+            <TouchableOpacity style={styles.imageViewerButton} onPress={handleShare}>
+              <Feather name="share-2" size={24} color={colors.white} />
+              <Text style={styles.imageViewerButtonText}>Partager</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.imageViewerButton} onPress={handleDelete}>
+              <Feather name="trash-2" size={24} color={colors.audioRed} />
+              <Text style={[styles.imageViewerButtonText, { color: colors.audioRed }]}>Supprimer</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -428,7 +562,7 @@ const styles = StyleSheet.create({
     padding: 8,
   },
   scrollContent: {
-    paddingBottom: 100,
+    paddingBottom: 160,
   },
   previewCard: {
     margin: 16,
@@ -442,6 +576,29 @@ const styles = StyleSheet.create({
     height: 200,
     borderRadius: borderRadius.md,
     marginBottom: 20,
+  },
+  playOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  playButton: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingLeft: 5,
+  },
+  tapToOpen: {
+    color: colors.textMuted,
+    fontSize: 12,
+    marginBottom: 10,
   },
   fileIconLarge: {
     marginBottom: 20,
@@ -522,7 +679,7 @@ const styles = StyleSheet.create({
   },
   bottomAction: {
     position: 'absolute',
-    bottom: 0,
+    bottom: 80,
     left: 0,
     right: 0,
     padding: 16,
@@ -599,5 +756,41 @@ const styles = StyleSheet.create({
     color: colors.white,
     fontSize: 16,
     fontWeight: '600',
+  },
+  // Image Viewer styles
+  imageViewerContainer: {
+    flex: 1,
+    backgroundColor: '#000',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  imageViewerClose: {
+    position: 'absolute',
+    top: 50,
+    right: 20,
+    zIndex: 10,
+    padding: 10,
+  },
+  fullScreenImage: {
+    width: SCREEN_WIDTH,
+    height: SCREEN_HEIGHT - 150,
+  },
+  imageViewerActions: {
+    position: 'absolute',
+    bottom: 50,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 40,
+  },
+  imageViewerButton: {
+    alignItems: 'center',
+    padding: 10,
+  },
+  imageViewerButtonText: {
+    color: colors.white,
+    fontSize: 12,
+    marginTop: 4,
   },
 });
