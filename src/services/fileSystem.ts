@@ -1164,6 +1164,206 @@ class FileSystemServiceClass {
       return null;
     }
   }
+
+  /**
+   * Recherche globale de fichiers par nom
+   */
+  async searchFiles(query: string, limit: number = 50): Promise<FileItem[]> {
+    const results: FileItem[] = [];
+    const normalizedQuery = query.toLowerCase().trim();
+
+    if (!normalizedQuery) return results;
+
+    try {
+      const hasPermission = await this.checkPermissions();
+
+      // Rechercher dans les fichiers système (Documents, Downloads)
+      const systemPaths = [
+        this.rootDirectories.documents,
+        this.rootDirectories.documents + 'Downloads/',
+      ];
+
+      for (const basePath of systemPaths) {
+        if (!basePath) continue;
+        await this.searchInDirectory(basePath, normalizedQuery, results, limit);
+      }
+
+      // Rechercher dans MediaLibrary (photos, vidéos, audio)
+      if (hasPermission && results.length < limit) {
+        // Rechercher dans les photos
+        const photos = await MediaLibrary.getAssetsAsync({
+          mediaType: MediaLibrary.MediaType.photo,
+          first: 500,
+        });
+
+        for (const asset of photos.assets) {
+          if (results.length >= limit) break;
+          if (asset.filename.toLowerCase().includes(normalizedQuery)) {
+            results.push({
+              id: asset.id,
+              name: asset.filename.replace(/\.[^.]+$/, ''),
+              extension: getFileExtension(asset.filename),
+              type: 'image',
+              path: asset.uri,
+              size: asset.fileSize || 0,
+              modifiedAt: new Date(asset.modificationTime * 1000),
+              isMediaAsset: true,
+              thumbnailUri: asset.uri,
+            });
+          }
+        }
+
+        // Rechercher dans les vidéos
+        if (results.length < limit) {
+          const videos = await MediaLibrary.getAssetsAsync({
+            mediaType: MediaLibrary.MediaType.video,
+            first: 200,
+          });
+
+          for (const asset of videos.assets) {
+            if (results.length >= limit) break;
+            if (asset.filename.toLowerCase().includes(normalizedQuery)) {
+              results.push({
+                id: asset.id,
+                name: asset.filename.replace(/\.[^.]+$/, ''),
+                extension: getFileExtension(asset.filename),
+                type: 'video',
+                path: asset.uri,
+                size: asset.fileSize || 0,
+                modifiedAt: new Date(asset.modificationTime * 1000),
+                isMediaAsset: true,
+                thumbnailUri: asset.uri,
+              });
+            }
+          }
+        }
+
+        // Rechercher dans les audios
+        if (results.length < limit) {
+          const audios = await MediaLibrary.getAssetsAsync({
+            mediaType: MediaLibrary.MediaType.audio,
+            first: 200,
+          });
+
+          for (const asset of audios.assets) {
+            if (results.length >= limit) break;
+            if (asset.filename.toLowerCase().includes(normalizedQuery)) {
+              results.push({
+                id: asset.id,
+                name: asset.filename.replace(/\.[^.]+$/, ''),
+                extension: getFileExtension(asset.filename),
+                type: 'audio',
+                path: asset.uri,
+                size: asset.fileSize || 0,
+                modifiedAt: new Date(asset.modificationTime * 1000),
+                isMediaAsset: true,
+              });
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error searching files:', error);
+    }
+
+    return results;
+  }
+
+  /**
+   * Recherche récursive dans un dossier
+   */
+  private async searchInDirectory(
+    dirPath: string,
+    query: string,
+    results: FileItem[],
+    limit: number,
+    depth: number = 0
+  ): Promise<void> {
+    if (results.length >= limit || depth > 5) return;
+
+    try {
+      const dirInfo = await FileSystem.getInfoAsync(dirPath);
+      if (!dirInfo.exists) return;
+
+      const contents = await FileSystem.readDirectoryAsync(dirPath);
+
+      for (const item of contents) {
+        if (results.length >= limit) break;
+        if (item.startsWith('.')) continue;
+
+        const itemPath = dirPath.endsWith('/') ? `${dirPath}${item}` : `${dirPath}/${item}`;
+
+        try {
+          const info = await FileSystem.getInfoAsync(itemPath);
+          const isDirectory = info.isDirectory || false;
+
+          // Vérifier si le nom correspond à la recherche
+          if (item.toLowerCase().includes(query)) {
+            const extension = isDirectory ? '' : getFileExtension(item);
+
+            results.push({
+              id: itemPath,
+              name: isDirectory ? item : item.replace(/\.[^.]+$/, ''),
+              extension,
+              type: getFileType(item, isDirectory),
+              path: itemPath,
+              size: (info as any).size || 0,
+              modifiedAt: (info as any).modificationTime
+                ? new Date((info as any).modificationTime * 1000)
+                : undefined,
+            });
+          }
+
+          // Rechercher récursivement dans les sous-dossiers
+          if (isDirectory && results.length < limit) {
+            await this.searchInDirectory(itemPath, query, results, limit, depth + 1);
+          }
+        } catch (itemError) {
+          // Ignorer les erreurs sur les fichiers individuels
+        }
+      }
+    } catch (error) {
+      // Ignorer les erreurs sur les dossiers
+    }
+  }
 }
 
 export const FileSystemService = new FileSystemServiceClass();
+
+// Types pour le tri
+export type SortOption = 'name' | 'date' | 'size' | 'type';
+export type SortOrder = 'asc' | 'desc';
+
+// Fonction utilitaire pour trier les fichiers
+export function sortFiles(files: FileItem[], sortBy: SortOption, order: SortOrder = 'asc'): FileItem[] {
+  const sorted = [...files].sort((a, b) => {
+    // Les dossiers toujours en premier
+    if (a.type === 'folder' && b.type !== 'folder') return -1;
+    if (a.type !== 'folder' && b.type === 'folder') return 1;
+
+    let comparison = 0;
+
+    switch (sortBy) {
+      case 'name':
+        comparison = a.name.localeCompare(b.name);
+        break;
+      case 'date':
+        const dateA = a.modifiedAt?.getTime() || 0;
+        const dateB = b.modifiedAt?.getTime() || 0;
+        comparison = dateA - dateB;
+        break;
+      case 'size':
+        const sizeA = a.size || 0;
+        const sizeB = b.size || 0;
+        comparison = sizeA - sizeB;
+        break;
+      case 'type':
+        comparison = a.extension.localeCompare(b.extension);
+        break;
+    }
+
+    return order === 'asc' ? comparison : -comparison;
+  });
+
+  return sorted;
+}

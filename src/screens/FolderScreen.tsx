@@ -30,8 +30,16 @@ import {
   AppIcon,
 } from '../components/FileIcons';
 import { colors, borderRadius } from '../theme/colors';
-import { FileSystemService } from '../services/fileSystem';
+import { FileSystemService, sortFiles, SortOption, SortOrder } from '../services/fileSystem';
 import { FileItem as FileItemType } from '../types';
+
+// Options de tri
+const SORT_OPTIONS: { value: SortOption; label: string; icon: string }[] = [
+  { value: 'name', label: 'Nom', icon: 'type' },
+  { value: 'date', label: 'Date', icon: 'calendar' },
+  { value: 'size', label: 'Taille', icon: 'hard-drive' },
+  { value: 'type', label: 'Type', icon: 'file' },
+];
 
 // Couleurs disponibles pour les dossiers
 const FOLDER_COLORS = [
@@ -104,9 +112,14 @@ export function FolderScreen() {
 
   // Modal pour créer un dossier
   const [showNewFolderModal, setShowNewFolderModal] = useState(false);
+  const [showSortModal, setShowSortModal] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
   const [selectedColor, setSelectedColor] = useState(FOLDER_COLORS[0]);
   const [folderColors, setFolderColors] = useState<Record<string, string>>({});
+
+  // Options de tri
+  const [sortBy, setSortBy] = useState<SortOption>('name');
+  const [sortOrder, setSortOrder] = useState<SortOrder>('asc');
 
   // Charger les couleurs des dossiers
   useEffect(() => {
@@ -159,9 +172,25 @@ export function FolderScreen() {
     setIsRefreshing(false);
   };
 
-  const filteredFiles = files.filter((file) =>
-    file.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // Filtrer et trier les fichiers
+  const filteredAndSortedFiles = React.useMemo(() => {
+    const filtered = files.filter((file) =>
+      file.name.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+    return sortFiles(filtered, sortBy, sortOrder);
+  }, [files, searchQuery, sortBy, sortOrder]);
+
+  // Changer le tri
+  const handleSortChange = (option: SortOption) => {
+    if (sortBy === option) {
+      // Inverser l'ordre si on clique sur la même option
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortBy(option);
+      setSortOrder('asc');
+    }
+    setShowSortModal(false);
+  };
 
   const handleSearch = useCallback((query: string) => {
     setSearchQuery(query);
@@ -282,6 +311,7 @@ export function FolderScreen() {
     if (canCreateFolder) {
       options.push({ text: 'Nouveau dossier', onPress: () => setShowNewFolderModal(true) });
     }
+    options.push({ text: 'Trier par...', onPress: () => setShowSortModal(true) });
     options.push({ text: 'Actualiser', onPress: handleRefresh });
     options.push({ text: 'Annuler', style: 'cancel' });
 
@@ -327,12 +357,25 @@ export function FolderScreen() {
         <SearchBar onSearch={handleSearch} placeholder="Rechercher..." />
       </View>
 
-      {/* Info du dossier */}
+      {/* Info du dossier et options de tri */}
       <View style={styles.folderInfo}>
         <FolderIcon size={32} />
         <Text style={styles.folderInfoText}>
           {totalFolders} dossiers, {totalFiles} fichiers
         </Text>
+        <TouchableOpacity
+          onPress={() => setShowSortModal(true)}
+          style={styles.sortButton}
+        >
+          <Feather
+            name={sortOrder === 'asc' ? 'arrow-up' : 'arrow-down'}
+            size={16}
+            color={colors.accentGradientStart}
+          />
+          <Text style={styles.sortButtonText}>
+            {SORT_OPTIONS.find(o => o.value === sortBy)?.label}
+          </Text>
+        </TouchableOpacity>
         {canCreateFolder && (
           <TouchableOpacity
             onPress={() => setShowNewFolderModal(true)}
@@ -357,7 +400,7 @@ export function FolderScreen() {
           }
         >
           <View style={styles.filesGrid}>
-            {filteredFiles.map((file) => (
+            {filteredAndSortedFiles.map((file) => (
               <View key={file.id} style={styles.fileGridItem}>
                 <FileItem
                   name={file.name}
@@ -372,7 +415,7 @@ export function FolderScreen() {
             ))}
           </View>
 
-          {filteredFiles.length === 0 && (
+          {filteredAndSortedFiles.length === 0 && (
             <View style={styles.emptyState}>
               <Feather name="folder" size={48} color={colors.textMuted} />
               <Text style={styles.emptyText}>
@@ -455,6 +498,59 @@ export function FolderScreen() {
                 <Text style={styles.modalButtonConfirmText}>Créer</Text>
               </TouchableOpacity>
             </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Modal de tri */}
+      <Modal
+        visible={showSortModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowSortModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.sortModalContent}>
+            <Text style={styles.modalTitle}>Trier par</Text>
+
+            {SORT_OPTIONS.map((option) => (
+              <TouchableOpacity
+                key={option.value}
+                style={[
+                  styles.sortOptionItem,
+                  sortBy === option.value && styles.sortOptionItemSelected,
+                ]}
+                onPress={() => handleSortChange(option.value)}
+              >
+                <Feather
+                  name={option.icon as any}
+                  size={20}
+                  color={sortBy === option.value ? colors.accentGradientStart : colors.textMuted}
+                />
+                <Text
+                  style={[
+                    styles.sortOptionText,
+                    sortBy === option.value && styles.sortOptionTextSelected,
+                  ]}
+                >
+                  {option.label}
+                </Text>
+                {sortBy === option.value && (
+                  <Feather
+                    name={sortOrder === 'asc' ? 'arrow-up' : 'arrow-down'}
+                    size={18}
+                    color={colors.accentGradientStart}
+                  />
+                )}
+              </TouchableOpacity>
+            ))}
+
+            <TouchableOpacity
+              style={styles.sortModalCloseButton}
+              onPress={() => setShowSortModal(false)}
+            >
+              <Text style={styles.sortModalCloseText}>Fermer</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -653,5 +749,60 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 4,
     elevation: 4,
+  },
+  // Sort button styles
+  sortButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: 'rgba(102, 126, 234, 0.1)',
+    borderRadius: borderRadius.sm,
+  },
+  sortButtonText: {
+    color: colors.accentGradientStart,
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  // Sort modal styles
+  sortModalContent: {
+    width: SCREEN_WIDTH - 80,
+    backgroundColor: colors.cardLight,
+    borderRadius: borderRadius.lg,
+    padding: 20,
+  },
+  sortOptionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    borderRadius: borderRadius.md,
+    marginBottom: 4,
+  },
+  sortOptionItemSelected: {
+    backgroundColor: 'rgba(102, 126, 234, 0.1)',
+  },
+  sortOptionText: {
+    flex: 1,
+    fontSize: 16,
+    color: colors.textDark,
+  },
+  sortOptionTextSelected: {
+    color: colors.accentGradientStart,
+    fontWeight: '600',
+  },
+  sortModalCloseButton: {
+    marginTop: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.05)',
+    borderRadius: borderRadius.sm,
+  },
+  sortModalCloseText: {
+    color: colors.textMuted,
+    fontSize: 16,
+    fontWeight: '500',
   },
 });

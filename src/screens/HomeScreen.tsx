@@ -34,6 +34,9 @@ import { colors, gradients, borderRadius, neuShadow } from '../theme/colors';
 import { FileSystemService, StorageInfo } from '../services/fileSystem';
 import { FileItem as FileItemType } from '../types';
 
+// Délai de debounce pour la recherche (ms)
+const SEARCH_DEBOUNCE = 300;
+
 const FOLDER_COLORS_STORAGE_KEY = 'folder_colors';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -73,12 +76,15 @@ export function HomeScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
   const [hasPermission, setHasPermission] = useState(false);
   const [files, setFiles] = useState<FileItemType[]>([]);
+  const [searchResults, setSearchResults] = useState<FileItemType[]>([]);
   const [storageInfo, setStorageInfo] = useState<StorageInfo | null>(null);
   const [totalFiles, setTotalFiles] = useState(0);
   const [totalFolders, setTotalFolders] = useState(0);
   const [folderColors, setFolderColors] = useState<Record<string, string>>({});
+  const searchTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
 
   // Charger les couleurs des dossiers
   const loadFolderColors = async () => {
@@ -161,13 +167,48 @@ export function HomeScreen() {
     setIsRefreshing(false);
   };
 
-  const filteredFiles = files.filter((file) =>
-    file.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // Effectuer la recherche globale
+  const performSearch = async (query: string) => {
+    if (!query.trim()) {
+      setSearchResults([]);
+      setIsSearching(false);
+      return;
+    }
+
+    setIsSearching(true);
+    try {
+      const results = await FileSystemService.searchFiles(query, 50);
+      setSearchResults(results);
+    } catch (error) {
+      console.error('Search error:', error);
+    } finally {
+      setIsSearching(false);
+    }
+  };
 
   const handleSearch = useCallback((query: string) => {
     setSearchQuery(query);
+
+    // Annuler la recherche précédente
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+
+    if (!query.trim()) {
+      setSearchResults([]);
+      setIsSearching(false);
+      return;
+    }
+
+    // Debounce la recherche
+    setIsSearching(true);
+    searchTimeoutRef.current = setTimeout(() => {
+      performSearch(query);
+    }, SEARCH_DEBOUNCE);
   }, []);
+
+  // Fichiers à afficher (résultats de recherche ou dossiers racine)
+  const displayFiles = searchQuery.trim() ? searchResults : files;
 
   const handleVoiceSearch = useCallback(() => {
     Vibration.vibrate(50);
@@ -277,55 +318,80 @@ export function HomeScreen() {
         </View>
       </LinearGradient>
 
+      {/* Indicateur de résultats de recherche */}
+      {searchQuery.trim() && (
+        <View style={styles.searchResultsHeader}>
+          <Feather name="search" size={16} color={colors.textMuted} />
+          <Text style={styles.searchResultsText}>
+            {isSearching
+              ? 'Recherche en cours...'
+              : `${searchResults.length} résultat${searchResults.length !== 1 ? 's' : ''} pour "${searchQuery}"`
+            }
+          </Text>
+          {searchQuery.trim() && (
+            <TouchableOpacity onPress={() => handleSearch('')} style={styles.clearSearchButton}>
+              <Feather name="x" size={18} color={colors.textMuted} />
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
+
       {/* Grille des fichiers */}
       <View style={styles.filesContainer}>
-        <ScrollView
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.filesScrollContent}
-          refreshControl={
-            <RefreshControl
-              refreshing={isRefreshing}
-              onRefresh={handleRefresh}
-              tintColor={colors.accentGradientStart}
-            />
-          }
-        >
-          <View style={styles.filesGrid}>
-            {filteredFiles.map((file) => (
-              <View key={file.id} style={styles.fileGridItem}>
-                <FileItem
-                  name={file.name}
-                  extension={file.extension}
-                  icon={getFileIcon(file.type, 40, file.path ? folderColors[file.path] : undefined)}
-                  thumbnailUri={file.thumbnailUri}
-                  itemCount={file.type === 'folder' ? file.itemCount : undefined}
-                  onPress={() => handleFilePress(file)}
-                  onLongPress={() => handleFileLongPress(file)}
-                  variant="solid"
-                />
-              </View>
-            ))}
+        {isSearching ? (
+          <View style={styles.searchingContainer}>
+            <ActivityIndicator size="large" color={colors.accentGradientStart} />
+            <Text style={styles.loadingText}>Recherche en cours...</Text>
           </View>
-
-          {filteredFiles.length === 0 && !isLoading && (
-            <View style={styles.emptyState}>
-              <Feather name="folder" size={48} color={colors.textMuted} />
-              <Text style={styles.emptyText}>
-                {searchQuery ? 'Aucun fichier trouvé' : 'Aucun dossier accessible'}
-              </Text>
-              {!hasPermission && (
-                <TouchableOpacity
-                  style={styles.permissionButton}
-                  onPress={initializeApp}
-                >
-                  <Text style={styles.permissionButtonText}>
-                    Autoriser l'accès aux fichiers
-                  </Text>
-                </TouchableOpacity>
-              )}
+        ) : (
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.filesScrollContent}
+            refreshControl={
+              <RefreshControl
+                refreshing={isRefreshing}
+                onRefresh={handleRefresh}
+                tintColor={colors.accentGradientStart}
+              />
+            }
+          >
+            <View style={styles.filesGrid}>
+              {displayFiles.map((file) => (
+                <View key={file.id} style={styles.fileGridItem}>
+                  <FileItem
+                    name={file.name}
+                    extension={file.extension}
+                    icon={getFileIcon(file.type, 40, file.path ? folderColors[file.path] : undefined)}
+                    thumbnailUri={file.thumbnailUri}
+                    itemCount={file.type === 'folder' ? file.itemCount : undefined}
+                    onPress={() => handleFilePress(file)}
+                    onLongPress={() => handleFileLongPress(file)}
+                    variant="solid"
+                  />
+                </View>
+              ))}
             </View>
-          )}
-        </ScrollView>
+
+            {displayFiles.length === 0 && !isLoading && (
+              <View style={styles.emptyState}>
+                <Feather name={searchQuery ? 'search' : 'folder'} size={48} color={colors.textMuted} />
+                <Text style={styles.emptyText}>
+                  {searchQuery ? 'Aucun fichier trouvé' : 'Aucun dossier accessible'}
+                </Text>
+                {!hasPermission && !searchQuery && (
+                  <TouchableOpacity
+                    style={styles.permissionButton}
+                    onPress={initializeApp}
+                  >
+                    <Text style={styles.permissionButtonText}>
+                      Autoriser l'accès aux fichiers
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            )}
+          </ScrollView>
+        )}
       </View>
     </SafeAreaView>
   );
@@ -431,5 +497,26 @@ const styles = StyleSheet.create({
     color: colors.white,
     fontSize: 14,
     fontWeight: '600',
+  },
+  searchResultsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    backgroundColor: colors.cardBgAlt,
+  },
+  searchResultsText: {
+    flex: 1,
+    color: colors.textMuted,
+    fontSize: 14,
+  },
+  clearSearchButton: {
+    padding: 4,
+  },
+  searchingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });
