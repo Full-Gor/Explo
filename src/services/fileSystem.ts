@@ -728,6 +728,167 @@ class FileSystemServiceClass {
   }
 
   /**
+   * Déplace un fichier vers un dossier de destination
+   */
+  async moveToFolder(sourcePath: string, destinationFolder: string, fileName: string): Promise<{ success: boolean; newPath?: string }> {
+    try {
+      // S'assurer que le dossier de destination existe
+      const destInfo = await FileSystem.getInfoAsync(destinationFolder);
+      if (!destInfo.exists) {
+        await FileSystem.makeDirectoryAsync(destinationFolder, { intermediates: true });
+      }
+
+      // Construire le chemin de destination
+      const cleanDestFolder = destinationFolder.endsWith('/') ? destinationFolder.slice(0, -1) : destinationFolder;
+      const newPath = `${cleanDestFolder}/${fileName}`;
+
+      // Vérifier si un fichier existe déjà à la destination
+      const existingInfo = await FileSystem.getInfoAsync(newPath);
+      if (existingInfo.exists) {
+        return { success: false };
+      }
+
+      // Déplacer le fichier
+      await FileSystem.moveAsync({
+        from: sourcePath,
+        to: newPath,
+      });
+
+      // Vérifier que le déplacement a réussi
+      const newFileInfo = await FileSystem.getInfoAsync(newPath);
+      return { success: newFileInfo.exists, newPath };
+    } catch (error) {
+      console.error('Error moving to folder:', error);
+      return { success: false };
+    }
+  }
+
+  /**
+   * Déplace un asset MediaLibrary vers un dossier
+   */
+  async moveMediaAsset(assetId: string, destinationFolder: string, fileName: string): Promise<{ success: boolean; newPath?: string }> {
+    try {
+      // Obtenir l'URI locale de l'asset
+      const assetInfo = await MediaLibrary.getAssetInfoAsync(assetId);
+      const localUri = assetInfo?.localUri;
+
+      if (!localUri) {
+        console.error('Could not get local URI for asset');
+        return { success: false };
+      }
+
+      // S'assurer que le dossier de destination existe
+      const destInfo = await FileSystem.getInfoAsync(destinationFolder);
+      if (!destInfo.exists) {
+        await FileSystem.makeDirectoryAsync(destinationFolder, { intermediates: true });
+      }
+
+      // Construire le chemin de destination
+      const cleanDestFolder = destinationFolder.endsWith('/') ? destinationFolder.slice(0, -1) : destinationFolder;
+      const newPath = `${cleanDestFolder}/${fileName}`;
+
+      // Vérifier si un fichier existe déjà à la destination
+      const existingInfo = await FileSystem.getInfoAsync(newPath);
+      if (existingInfo.exists) {
+        return { success: false };
+      }
+
+      // Copier le fichier vers la destination
+      await FileSystem.copyAsync({
+        from: localUri,
+        to: newPath,
+      });
+
+      // Vérifier que la copie a réussi
+      const newFileInfo = await FileSystem.getInfoAsync(newPath);
+      if (!newFileInfo.exists) {
+        return { success: false };
+      }
+
+      // Supprimer l'original de MediaLibrary
+      try {
+        await MediaLibrary.deleteAssetsAsync([assetId]);
+      } catch (deleteError) {
+        console.warn('Could not delete original asset:', deleteError);
+        // On continue quand même car le fichier déplacé existe
+      }
+
+      return { success: true, newPath };
+    } catch (error) {
+      console.error('Error moving media asset:', error);
+      return { success: false };
+    }
+  }
+
+  /**
+   * Obtient la liste des dossiers disponibles pour le déplacement
+   */
+  async getAvailableFolders(): Promise<{ id: string; name: string; path: string }[]> {
+    const folders: { id: string; name: string; path: string }[] = [];
+
+    // Dossier Documents de l'app
+    if (this.rootDirectories.documents) {
+      folders.push({
+        id: 'documents',
+        name: 'Documents',
+        path: this.rootDirectories.documents,
+      });
+
+      // Lister les sous-dossiers de Documents
+      try {
+        const contents = await FileSystem.readDirectoryAsync(this.rootDirectories.documents);
+        for (const item of contents) {
+          if (item.startsWith('.')) continue;
+          const itemPath = `${this.rootDirectories.documents}${item}`;
+          const info = await FileSystem.getInfoAsync(itemPath);
+          if (info.isDirectory) {
+            folders.push({
+              id: itemPath,
+              name: `Documents/${item}`,
+              path: itemPath,
+            });
+          }
+        }
+      } catch (error) {
+        console.error('Error listing document subfolders:', error);
+      }
+
+      // Dossier Downloads
+      const downloadPath = this.rootDirectories.documents + 'Downloads/';
+      try {
+        const dlInfo = await FileSystem.getInfoAsync(downloadPath);
+        if (!dlInfo.exists) {
+          await FileSystem.makeDirectoryAsync(downloadPath, { intermediates: true });
+        }
+        folders.push({
+          id: 'downloads',
+          name: 'Téléchargements',
+          path: downloadPath,
+        });
+
+        // Sous-dossiers de Downloads
+        const dlContents = await FileSystem.readDirectoryAsync(downloadPath);
+        for (const item of dlContents) {
+          if (item.startsWith('.')) continue;
+          const itemPath = `${downloadPath}${item}`;
+          const info = await FileSystem.getInfoAsync(itemPath);
+          if (info.isDirectory) {
+            folders.push({
+              id: itemPath,
+              name: `Téléchargements/${item}`,
+              path: itemPath,
+            });
+          }
+        }
+      } catch (error) {
+        console.error('Error listing download subfolders:', error);
+      }
+    }
+
+    return folders;
+  }
+
+  /**
    * Partage un fichier
    */
   async share(path: string): Promise<boolean> {

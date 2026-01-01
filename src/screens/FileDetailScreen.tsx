@@ -28,6 +28,7 @@ import {
   DocumentIcon,
   ArchiveIcon,
   AppIcon,
+  FolderIcon,
 } from '../components/FileIcons';
 import { colors, gradients, borderRadius, neuShadow } from '../theme/colors';
 import { FileSystemService } from '../services/fileSystem';
@@ -175,12 +176,16 @@ export function FileDetailScreen() {
   const [showImageViewer, setShowImageViewer] = useState(false);
   const [showVideoPlayer, setShowVideoPlayer] = useState(false);
   const [showAudioPlayer, setShowAudioPlayer] = useState(false);
+  const [showMoveModal, setShowMoveModal] = useState(false);
   const [newName, setNewName] = useState(file.name);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isMoving, setIsMoving] = useState(false);
   const [imageUri, setImageUri] = useState<string | null>(null);
   const [videoUri, setVideoUri] = useState<string | null>(null);
   const [audioUri, setAudioUri] = useState<string | null>(null);
   const [isLoadingMedia, setIsLoadingMedia] = useState(false);
+  const [availableFolders, setAvailableFolders] = useState<{ id: string; name: string; path: string }[]>([]);
+  const [selectedFolder, setSelectedFolder] = useState<{ id: string; name: string; path: string } | null>(null);
   const videoRef = useRef<Video>(null);
 
   // Audio player state
@@ -403,14 +408,69 @@ export function FileDetailScreen() {
     setShowRenameModal(false);
   }, [file, newName, navigation]);
 
-  const handleMove = useCallback(() => {
+  const handleMove = useCallback(async () => {
     Vibration.vibrate(10);
-    Alert.alert(
-      'Déplacer',
-      'Cette fonctionnalité n\'est pas encore disponible.',
-      [{ text: 'OK' }]
-    );
+
+    // Charger les dossiers disponibles
+    const folders = await FileSystemService.getAvailableFolders();
+    setAvailableFolders(folders);
+    setSelectedFolder(folders.length > 0 ? folders[0] : null);
+    setShowMoveModal(true);
   }, []);
+
+  const handleConfirmMove = useCallback(async () => {
+    if (!selectedFolder) {
+      Alert.alert('Erreur', 'Veuillez sélectionner un dossier de destination');
+      return;
+    }
+
+    setIsMoving(true);
+    const fileName = `${file.name}${file.extension}`;
+
+    try {
+      // Pour les assets MediaLibrary
+      if (file.isMediaAsset) {
+        const result = await FileSystemService.moveMediaAsset(
+          file.id,
+          selectedFolder.path,
+          fileName
+        );
+
+        if (result.success) {
+          Alert.alert(
+            'Succès',
+            `Fichier déplacé vers ${selectedFolder.name}`,
+            [{ text: 'OK', onPress: () => navigation.goBack() }]
+          );
+        } else {
+          Alert.alert('Erreur', 'Impossible de déplacer ce fichier. Un fichier avec ce nom existe peut-être déjà.');
+        }
+      } else if (file.path) {
+        // Pour les fichiers normaux
+        const result = await FileSystemService.moveToFolder(
+          file.path,
+          selectedFolder.path,
+          fileName
+        );
+
+        if (result.success) {
+          Alert.alert(
+            'Succès',
+            `Fichier déplacé vers ${selectedFolder.name}`,
+            [{ text: 'OK', onPress: () => navigation.goBack() }]
+          );
+        } else {
+          Alert.alert('Erreur', 'Impossible de déplacer ce fichier. Un fichier avec ce nom existe peut-être déjà.');
+        }
+      }
+    } catch (error) {
+      console.error('Move error:', error);
+      Alert.alert('Erreur', 'Une erreur est survenue lors du déplacement');
+    } finally {
+      setIsMoving(false);
+      setShowMoveModal(false);
+    }
+  }, [file, selectedFolder, navigation]);
 
   const handleCopy = useCallback(() => {
     Vibration.vibrate(10);
@@ -846,6 +906,78 @@ export function FileDetailScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Modal Déplacer */}
+      <Modal
+        visible={showMoveModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowMoveModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.moveModalContent}>
+            <Text style={styles.modalTitle}>Déplacer vers</Text>
+
+            {/* Liste des dossiers */}
+            <ScrollView style={styles.folderList} showsVerticalScrollIndicator={false}>
+              {availableFolders.map((folder) => (
+                <TouchableOpacity
+                  key={folder.id}
+                  style={[
+                    styles.folderItem,
+                    selectedFolder?.id === folder.id && styles.folderItemSelected,
+                  ]}
+                  onPress={() => setSelectedFolder(folder)}
+                >
+                  <FolderIcon size={32} color={selectedFolder?.id === folder.id ? colors.accentGradientStart : colors.folderOrange} />
+                  <Text
+                    style={[
+                      styles.folderItemText,
+                      selectedFolder?.id === folder.id && styles.folderItemTextSelected,
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {folder.name}
+                  </Text>
+                  {selectedFolder?.id === folder.id && (
+                    <Feather name="check" size={20} color={colors.accentGradientStart} />
+                  )}
+                </TouchableOpacity>
+              ))}
+
+              {availableFolders.length === 0 && (
+                <View style={styles.noFoldersContainer}>
+                  <Feather name="folder" size={40} color={colors.textMuted} />
+                  <Text style={styles.noFoldersText}>Aucun dossier disponible</Text>
+                </View>
+              )}
+            </ScrollView>
+
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={styles.modalButtonCancel}
+                onPress={() => {
+                  setShowMoveModal(false);
+                  setSelectedFolder(null);
+                }}
+              >
+                <Text style={styles.modalButtonCancelText}>Annuler</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalButtonConfirm, isMoving && styles.modalButtonDisabled]}
+                onPress={handleConfirmMove}
+                disabled={isMoving || !selectedFolder}
+              >
+                {isMoving ? (
+                  <ActivityIndicator size="small" color={colors.white} />
+                ) : (
+                  <Text style={styles.modalButtonConfirmText}>Déplacer</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -1218,5 +1350,53 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'center',
     gap: 40,
+  },
+  // Move Modal styles
+  moveModalContent: {
+    width: SCREEN_WIDTH - 40,
+    maxHeight: SCREEN_HEIGHT * 0.6,
+    backgroundColor: colors.cardLight,
+    borderRadius: borderRadius.lg,
+    padding: 24,
+  },
+  folderList: {
+    maxHeight: 300,
+    marginBottom: 16,
+  },
+  folderItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: borderRadius.md,
+    marginBottom: 8,
+    backgroundColor: 'rgba(0,0,0,0.03)',
+    gap: 12,
+  },
+  folderItemSelected: {
+    backgroundColor: 'rgba(102, 126, 234, 0.1)',
+    borderWidth: 1,
+    borderColor: colors.accentGradientStart,
+  },
+  folderItemText: {
+    flex: 1,
+    fontSize: 14,
+    color: colors.textDark,
+  },
+  folderItemTextSelected: {
+    color: colors.accentGradientStart,
+    fontWeight: '600',
+  },
+  noFoldersContainer: {
+    alignItems: 'center',
+    paddingVertical: 40,
+  },
+  noFoldersText: {
+    marginTop: 12,
+    color: colors.textMuted,
+    fontSize: 14,
+  },
+  modalButtonDisabled: {
+    opacity: 0.6,
   },
 });
