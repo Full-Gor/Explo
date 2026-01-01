@@ -583,6 +583,66 @@ class FileSystemServiceClass {
   }
 
   /**
+   * Renomme un asset MediaLibrary (copie avec nouveau nom puis supprime l'original)
+   */
+  async renameMediaAsset(assetId: string, assetUri: string, newName: string, extension: string): Promise<{ success: boolean; newPath?: string }> {
+    try {
+      // Obtenir l'URI locale de l'asset
+      const assetInfo = await MediaLibrary.getAssetInfoAsync(assetId);
+      const localUri = assetInfo?.localUri;
+
+      if (!localUri) {
+        console.error('Could not get local URI for asset');
+        return { success: false };
+      }
+
+      // Créer le nouveau chemin dans le dossier Documents de l'app
+      const newFileName = `${newName}${extension}`;
+      const newPath = `${FileSystem.documentDirectory}renamed/${newFileName}`;
+
+      // Créer le dossier renamed s'il n'existe pas
+      const renamedDir = `${FileSystem.documentDirectory}renamed/`;
+      const dirInfo = await FileSystem.getInfoAsync(renamedDir);
+      if (!dirInfo.exists) {
+        await FileSystem.makeDirectoryAsync(renamedDir, { intermediates: true });
+      }
+
+      // Vérifier si un fichier avec ce nom existe déjà
+      const existingInfo = await FileSystem.getInfoAsync(newPath);
+      if (existingInfo.exists) {
+        console.error('A file with this name already exists');
+        return { success: false };
+      }
+
+      // Copier le fichier avec le nouveau nom
+      await FileSystem.copyAsync({
+        from: localUri,
+        to: newPath,
+      });
+
+      // Vérifier que la copie a réussi
+      const newFileInfo = await FileSystem.getInfoAsync(newPath);
+      if (!newFileInfo.exists) {
+        console.error('Failed to copy file');
+        return { success: false };
+      }
+
+      // Supprimer l'original de MediaLibrary
+      try {
+        await MediaLibrary.deleteAssetsAsync([assetId]);
+      } catch (deleteError) {
+        console.warn('Could not delete original asset:', deleteError);
+        // On continue quand même car le fichier renommé existe
+      }
+
+      return { success: true, newPath };
+    } catch (error) {
+      console.error('Error renaming media asset:', error);
+      return { success: false };
+    }
+  }
+
+  /**
    * Copie un fichier
    */
   async copy(sourcePath: string, destinationPath: string): Promise<boolean> {

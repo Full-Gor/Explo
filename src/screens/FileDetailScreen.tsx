@@ -368,13 +368,29 @@ export function FileDetailScreen() {
       return;
     }
 
-    // Pour les assets MediaLibrary, le renommage n'est pas supporté
+    // Pour les assets MediaLibrary
     if (file.isMediaAsset) {
-      Alert.alert('Non supporté', 'Le renommage des fichiers média n\'est pas supporté par le système.');
+      const result = await FileSystemService.renameMediaAsset(
+        file.id,
+        file.path || '',
+        newName.trim(),
+        file.extension
+      );
+
+      if (result.success) {
+        Alert.alert(
+          'Succès',
+          'Fichier renommé avec succès.\nLe fichier a été déplacé vers vos Documents.',
+          [{ text: 'OK', onPress: () => navigation.goBack() }]
+        );
+      } else {
+        Alert.alert('Erreur', 'Impossible de renommer ce fichier. Un fichier avec ce nom existe peut-être déjà.');
+      }
       setShowRenameModal(false);
       return;
     }
 
+    // Pour les fichiers normaux du système de fichiers
     if (file.path) {
       const success = await FileSystemService.rename(file.path, newName.trim());
       if (success) {
@@ -545,13 +561,7 @@ export function FileDetailScreen() {
             <ActionButton
               icon="edit-2"
               label="Renommer"
-              onPress={() => {
-                if (file.isMediaAsset) {
-                  Alert.alert('Non supporté', 'Le renommage des fichiers média n\'est pas supporté.');
-                } else {
-                  setShowRenameModal(true);
-                }
-              }}
+              onPress={() => setShowRenameModal(true)}
               color={colors.folderOrange}
             />
             <ActionButton icon="folder" label="Déplacer" onPress={handleMove} color={colors.audioPurple} />
