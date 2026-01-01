@@ -1,0 +1,48 @@
+{
+  "common": {
+    "search": "Поиск...",
+    "cancel": "Отмена",
+    "confirm": "Подтвердить",
+    "delete": "Удалить",
+    "rename": "Переименовать",
+    "share": "Поделиться",
+    "copy": "Копировать",
+    "move": "Переместить",
+    "info": "Информация"
+  },
+  "files": {
+    "myDocs": "Мои Документы",
+    "filesCount": "{{count}} файлов",
+    "foldersCount": "{{count}} папок",
+    "filesAndFolders": "{{files}} файлов, {{folders}} папок",
+    "freeSpace": "{{space}} свободно",
+    "recents": "Недавние",
+    "folder": "Папка",
+    "image": "Изображение",
+    "audio": "Аудио",
+    "document": "Документ",
+    "archive": "Архив",
+    "link": "Ссылка",
+    "app": "Приложение"
+  },
+  "actions": {
+    "sync": "Синхронизация",
+    "home": "Главная",
+    "settings": "Настройки",
+    "voiceSearch": "Голосовой поиск"
+  },
+  "calendar": {
+    "jan": "ЯНВ",
+    "feb": "ФЕВ",
+    "mar": "МАР",
+    "apr": "АПР",
+    "may": "МАЙ",
+    "jun": "ИЮН",
+    "jul": "ИЮЛ",
+    "aug": "АВГ",
+    "sep": "СЕН",
+    "oct": "ОКТ",
+    "nov": "НОЯ",
+    "dec": "ДЕК"
+  }
+}

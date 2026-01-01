@@ -1,0 +1,48 @@
+{
+  "common": {
+    "search": "بحث...",
+    "cancel": "إلغاء",
+    "confirm": "تأكيد",
+    "delete": "حذف",
+    "rename": "إعادة تسمية",
+    "share": "مشاركة",
+    "copy": "نسخ",
+    "move": "نقل",
+    "info": "معلومات"
+  },
+  "files": {
+    "myDocs": "مستنداتي",
+    "filesCount": "{{count}} ملفات",
+    "foldersCount": "{{count}} مجلدات",
+    "filesAndFolders": "{{files}} ملفات، {{folders}} مجلدات",
+    "freeSpace": "{{space}} متاح",
+    "recents": "الأخيرة",
+    "folder": "مجلد",
+    "image": "صورة",
+    "audio": "صوت",
+    "document": "مستند",
+    "archive": "أرشيف",
+    "link": "رابط",
+    "app": "تطبيق"
+  },
+  "actions": {
+    "sync": "مزامنة",
+    "home": "الرئيسية",
+    "settings": "الإعدادات",
+    "voiceSearch": "البحث الصوتي"
+  },
+  "calendar": {
+    "jan": "يناير",
+    "feb": "فبراير",
+    "mar": "مارس",
+    "apr": "أبريل",
+    "may": "مايو",
+    "jun": "يونيو",
+    "jul": "يوليو",
+    "aug": "أغسطس",
+    "sep": "سبتمبر",
+    "oct": "أكتوبر",
+    "nov": "نوفمبر",
+    "dec": "ديسمبر"
+  }
+}

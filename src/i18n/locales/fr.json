@@ -1,0 +1,48 @@
+{
+  "common": {
+    "search": "Rechercher...",
+    "cancel": "Annuler",
+    "confirm": "Confirmer",
+    "delete": "Supprimer",
+    "rename": "Renommer",
+    "share": "Partager",
+    "copy": "Copier",
+    "move": "Déplacer",
+    "info": "Informations"
+  },
+  "files": {
+    "myDocs": "Mes Documents",
+    "filesCount": "{{count}} fichiers",
+    "foldersCount": "{{count}} dossiers",
+    "filesAndFolders": "{{files}} fichiers, {{folders}} dossiers",
+    "freeSpace": "{{space}} disponible",
+    "recents": "Récents",
+    "folder": "Dossier",
+    "image": "Image",
+    "audio": "Audio",
+    "document": "Document",
+    "archive": "Archive",
+    "link": "Lien",
+    "app": "Application"
+  },
+  "actions": {
+    "sync": "Synchroniser",
+    "home": "Accueil",
+    "settings": "Paramètres",
+    "voiceSearch": "Recherche vocale"
+  },
+  "calendar": {
+    "jan": "JAN",
+    "feb": "FÉV",
+    "mar": "MAR",
+    "apr": "AVR",
+    "may": "MAI",
+    "jun": "JUI",
+    "jul": "JUL",
+    "aug": "AOÛ",
+    "sep": "SEP",
+    "oct": "OCT",
+    "nov": "NOV",
+    "dec": "DÉC"
+  }
+}

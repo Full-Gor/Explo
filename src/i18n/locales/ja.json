@@ -1,0 +1,48 @@
+{
+  "common": {
+    "search": "検索...",
+    "cancel": "キャンセル",
+    "confirm": "確認",
+    "delete": "削除",
+    "rename": "名前を変更",
+    "share": "共有",
+    "copy": "コピー",
+    "move": "移動",
+    "info": "情報"
+  },
+  "files": {
+    "myDocs": "マイドキュメント",
+    "filesCount": "{{count}} ファイル",
+    "foldersCount": "{{count}} フォルダー",
+    "filesAndFolders": "{{files}} ファイル、{{folders}} フォルダー",
+    "freeSpace": "{{space}} 空き",
+    "recents": "最近",
+    "folder": "フォルダー",
+    "image": "画像",
+    "audio": "オーディオ",
+    "document": "ドキュメント",
+    "archive": "アーカイブ",
+    "link": "リンク",
+    "app": "アプリ"
+  },
+  "actions": {
+    "sync": "同期",
+    "home": "ホーム",
+    "settings": "設定",
+    "voiceSearch": "音声検索"
+  },
+  "calendar": {
+    "jan": "1月",
+    "feb": "2月",
+    "mar": "3月",
+    "apr": "4月",
+    "may": "5月",
+    "jun": "6月",
+    "jul": "7月",
+    "aug": "8月",
+    "sep": "9月",
+    "oct": "10月",
+    "nov": "11月",
+    "dec": "12月"
+  }
+}
