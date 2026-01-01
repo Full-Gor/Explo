@@ -1,4 +1,4 @@
-import React, { useCallback, useState, useRef } from 'react';
+import React, { useCallback, useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -19,7 +19,7 @@ import { Feather } from '@expo/vector-icons';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as MediaLibrary from 'expo-media-library';
-import { Video, ResizeMode } from 'expo-av';
+import { Video, ResizeMode, Audio, AVPlaybackStatus } from 'expo-av';
 
 import {
   ImageIcon,
@@ -174,17 +174,123 @@ export function FileDetailScreen() {
   const [showRenameModal, setShowRenameModal] = useState(false);
   const [showImageViewer, setShowImageViewer] = useState(false);
   const [showVideoPlayer, setShowVideoPlayer] = useState(false);
+  const [showAudioPlayer, setShowAudioPlayer] = useState(false);
   const [newName, setNewName] = useState(file.name);
   const [isDeleting, setIsDeleting] = useState(false);
   const [imageUri, setImageUri] = useState<string | null>(null);
   const [videoUri, setVideoUri] = useState<string | null>(null);
+  const [audioUri, setAudioUri] = useState<string | null>(null);
   const [isLoadingMedia, setIsLoadingMedia] = useState(false);
   const videoRef = useRef<Video>(null);
+
+  // Audio player state
+  const [sound, setSound] = useState<Audio.Sound | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [playbackPosition, setPlaybackPosition] = useState(0);
+  const [playbackDuration, setPlaybackDuration] = useState(0);
+
+  // Cleanup audio on unmount
+  useEffect(() => {
+    return () => {
+      if (sound) {
+        sound.unloadAsync();
+      }
+    };
+  }, [sound]);
 
   const handleBack = useCallback(() => {
     Vibration.vibrate(10);
     navigation.goBack();
   }, [navigation]);
+
+  // Formater le temps en mm:ss
+  const formatTime = (millis: number): string => {
+    const totalSeconds = Math.floor(millis / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  };
+
+  // Charger et jouer l'audio
+  const loadAndPlayAudio = async (uri: string | null) => {
+    if (!uri) return;
+
+    try {
+      // Arrêter l'audio précédent s'il existe
+      if (sound) {
+        await sound.unloadAsync();
+      }
+
+      // Configurer le mode audio
+      await Audio.setAudioModeAsync({
+        playsInSilentModeIOS: true,
+        staysActiveInBackground: false,
+        shouldDuckAndroid: true,
+      });
+
+      // Créer et charger le nouveau son
+      const { sound: newSound } = await Audio.Sound.createAsync(
+        { uri },
+        { shouldPlay: true },
+        onPlaybackStatusUpdate
+      );
+
+      setSound(newSound);
+      setIsPlaying(true);
+    } catch (error) {
+      console.error('Error loading audio:', error);
+      Alert.alert('Erreur', 'Impossible de lire ce fichier audio.');
+    }
+  };
+
+  // Callback pour les mises à jour de lecture
+  const onPlaybackStatusUpdate = (status: AVPlaybackStatus) => {
+    if (status.isLoaded) {
+      setPlaybackPosition(status.positionMillis);
+      setPlaybackDuration(status.durationMillis || 0);
+      setIsPlaying(status.isPlaying);
+
+      if (status.didJustFinish) {
+        setIsPlaying(false);
+        setPlaybackPosition(0);
+      }
+    }
+  };
+
+  // Play/Pause
+  const handlePlayPause = async () => {
+    if (!sound) return;
+
+    if (isPlaying) {
+      await sound.pauseAsync();
+    } else {
+      await sound.playAsync();
+    }
+  };
+
+  // Arrêter l'audio
+  const handleStopAudio = async () => {
+    if (sound) {
+      await sound.stopAsync();
+      await sound.unloadAsync();
+    }
+    setSound(null);
+    setIsPlaying(false);
+    setPlaybackPosition(0);
+    setPlaybackDuration(0);
+    setShowAudioPlayer(false);
+  };
+
+  // Avancer/Reculer de 10 secondes
+  const handleSeek = async (forward: boolean) => {
+    if (!sound) return;
+
+    const newPosition = forward
+      ? Math.min(playbackPosition + 10000, playbackDuration)
+      : Math.max(playbackPosition - 10000, 0);
+
+    await sound.setPositionAsync(newPosition);
+  };
 
   // Obtenir l'URI locale pour les assets média
   const getLocalUri = async (): Promise<string | null> => {
@@ -226,7 +332,16 @@ export function FileDetailScreen() {
       return;
     }
 
-    // Pour les autres fichiers (audio, documents, etc.)
+    // Pour les fichiers audio, ouvrir le lecteur audio intégré
+    if (file.type === 'audio') {
+      setAudioUri(mediaUri);
+      setShowAudioPlayer(true);
+      await loadAndPlayAudio(mediaUri);
+      setIsLoadingMedia(false);
+      return;
+    }
+
+    // Pour les autres fichiers (documents, etc.)
     setIsLoadingMedia(false);
     if (file.path) {
       const mimeType = getMimeType(file.extension);
@@ -601,6 +716,104 @@ export function FileDetailScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Modal Audio Player */}
+      <Modal
+        visible={showAudioPlayer}
+        transparent
+        animationType="fade"
+        onRequestClose={handleStopAudio}
+      >
+        <View style={styles.audioPlayerContainer}>
+          <TouchableOpacity
+            style={styles.audioPlayerClose}
+            onPress={handleStopAudio}
+          >
+            <Feather name="x" size={28} color={colors.white} />
+          </TouchableOpacity>
+
+          <View style={styles.audioPlayerContent}>
+            {/* Icône audio */}
+            <View style={styles.audioIconLarge}>
+              <AudioIcon size={100} />
+            </View>
+
+            {/* Nom du fichier */}
+            <Text style={styles.audioFileName} numberOfLines={2}>
+              {file.name}{file.extension}
+            </Text>
+
+            {/* Barre de progression */}
+            <View style={styles.progressContainer}>
+              <View style={styles.progressBar}>
+                <View
+                  style={[
+                    styles.progressFill,
+                    {
+                      width: playbackDuration > 0
+                        ? `${(playbackPosition / playbackDuration) * 100}%`
+                        : '0%',
+                    },
+                  ]}
+                />
+              </View>
+              <View style={styles.timeContainer}>
+                <Text style={styles.timeText}>{formatTime(playbackPosition)}</Text>
+                <Text style={styles.timeText}>{formatTime(playbackDuration)}</Text>
+              </View>
+            </View>
+
+            {/* Contrôles de lecture */}
+            <View style={styles.audioControls}>
+              <TouchableOpacity
+                style={styles.audioControlButton}
+                onPress={() => handleSeek(false)}
+              >
+                <Feather name="rewind" size={28} color={colors.white} />
+                <Text style={styles.seekText}>-10s</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.playPauseButton}
+                onPress={handlePlayPause}
+              >
+                <Feather
+                  name={isPlaying ? 'pause' : 'play'}
+                  size={36}
+                  color={colors.white}
+                  style={isPlaying ? {} : { marginLeft: 4 }}
+                />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.audioControlButton}
+                onPress={() => handleSeek(true)}
+              >
+                <Feather name="fast-forward" size={28} color={colors.white} />
+                <Text style={styles.seekText}>+10s</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* Actions */}
+          <View style={styles.audioPlayerActions}>
+            <TouchableOpacity style={styles.imageViewerButton} onPress={handleShare}>
+              <Feather name="share-2" size={24} color={colors.white} />
+              <Text style={styles.imageViewerButtonText}>Partager</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.imageViewerButton}
+              onPress={() => {
+                handleStopAudio();
+                handleDelete();
+              }}
+            >
+              <Feather name="trash-2" size={24} color={colors.audioRed} />
+              <Text style={[styles.imageViewerButtonText, { color: colors.audioRed }]}>Supprimer</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -881,6 +1094,91 @@ const styles = StyleSheet.create({
     height: SCREEN_HEIGHT - 200,
   },
   videoPlayerActions: {
+    position: 'absolute',
+    bottom: 50,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 40,
+  },
+  // Audio Player styles
+  audioPlayerContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.95)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  audioPlayerClose: {
+    position: 'absolute',
+    top: 50,
+    right: 20,
+    zIndex: 10,
+    padding: 10,
+  },
+  audioPlayerContent: {
+    width: SCREEN_WIDTH - 60,
+    alignItems: 'center',
+    paddingHorizontal: 20,
+  },
+  audioIconLarge: {
+    marginBottom: 30,
+  },
+  audioFileName: {
+    color: colors.white,
+    fontSize: 20,
+    fontWeight: '600',
+    textAlign: 'center',
+    marginBottom: 40,
+  },
+  progressContainer: {
+    width: '100%',
+    marginBottom: 30,
+  },
+  progressBar: {
+    height: 6,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    backgroundColor: colors.accentGradientStart,
+    borderRadius: 3,
+  },
+  timeContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 10,
+  },
+  timeText: {
+    color: colors.textMuted,
+    fontSize: 13,
+  },
+  audioControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 40,
+  },
+  audioControlButton: {
+    alignItems: 'center',
+    padding: 10,
+  },
+  seekText: {
+    color: colors.textMuted,
+    fontSize: 11,
+    marginTop: 4,
+  },
+  playPauseButton: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: colors.accentGradientStart,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  audioPlayerActions: {
     position: 'absolute',
     bottom: 50,
     left: 0,
