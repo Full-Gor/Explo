@@ -177,9 +177,11 @@ export function FileDetailScreen() {
   const [showVideoPlayer, setShowVideoPlayer] = useState(false);
   const [showAudioPlayer, setShowAudioPlayer] = useState(false);
   const [showMoveModal, setShowMoveModal] = useState(false);
+  const [showCopyModal, setShowCopyModal] = useState(false);
   const [newName, setNewName] = useState(file.name);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isMoving, setIsMoving] = useState(false);
+  const [isCopying, setIsCopying] = useState(false);
   const [imageUri, setImageUri] = useState<string | null>(null);
   const [videoUri, setVideoUri] = useState<string | null>(null);
   const [audioUri, setAudioUri] = useState<string | null>(null);
@@ -472,14 +474,69 @@ export function FileDetailScreen() {
     }
   }, [file, selectedFolder, navigation]);
 
-  const handleCopy = useCallback(() => {
+  const handleCopy = useCallback(async () => {
     Vibration.vibrate(10);
-    Alert.alert(
-      'Copier',
-      'Cette fonctionnalité n\'est pas encore disponible.',
-      [{ text: 'OK' }]
-    );
+
+    // Charger les dossiers disponibles
+    const folders = await FileSystemService.getAvailableFolders();
+    setAvailableFolders(folders);
+    setSelectedFolder(folders.length > 0 ? folders[0] : null);
+    setShowCopyModal(true);
   }, []);
+
+  const handleConfirmCopy = useCallback(async () => {
+    if (!selectedFolder) {
+      Alert.alert('Erreur', 'Veuillez sélectionner un dossier de destination');
+      return;
+    }
+
+    setIsCopying(true);
+    const fileName = `${file.name}${file.extension}`;
+
+    try {
+      // Pour les assets MediaLibrary
+      if (file.isMediaAsset) {
+        const result = await FileSystemService.copyMediaAsset(
+          file.id,
+          selectedFolder.path,
+          fileName
+        );
+
+        if (result.success) {
+          Alert.alert(
+            'Succès',
+            `Fichier copié vers ${selectedFolder.name}`,
+            [{ text: 'OK' }]
+          );
+        } else {
+          Alert.alert('Erreur', 'Impossible de copier ce fichier.');
+        }
+      } else if (file.path) {
+        // Pour les fichiers normaux
+        const result = await FileSystemService.copyToFolder(
+          file.path,
+          selectedFolder.path,
+          fileName
+        );
+
+        if (result.success) {
+          Alert.alert(
+            'Succès',
+            `Fichier copié vers ${selectedFolder.name}`,
+            [{ text: 'OK' }]
+          );
+        } else {
+          Alert.alert('Erreur', 'Impossible de copier ce fichier.');
+        }
+      }
+    } catch (error) {
+      console.error('Copy error:', error);
+      Alert.alert('Erreur', 'Une erreur est survenue lors de la copie');
+    } finally {
+      setIsCopying(false);
+      setShowCopyModal(false);
+    }
+  }, [file, selectedFolder]);
 
   const handleDelete = useCallback(() => {
     Vibration.vibrate(30);
@@ -978,6 +1035,78 @@ export function FileDetailScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Modal Copier */}
+      <Modal
+        visible={showCopyModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowCopyModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.moveModalContent}>
+            <Text style={styles.modalTitle}>Copier vers</Text>
+
+            {/* Liste des dossiers */}
+            <ScrollView style={styles.folderList} showsVerticalScrollIndicator={false}>
+              {availableFolders.map((folder) => (
+                <TouchableOpacity
+                  key={folder.id}
+                  style={[
+                    styles.folderItem,
+                    selectedFolder?.id === folder.id && styles.folderItemSelected,
+                  ]}
+                  onPress={() => setSelectedFolder(folder)}
+                >
+                  <FolderIcon size={32} color={selectedFolder?.id === folder.id ? colors.success : colors.folderOrange} />
+                  <Text
+                    style={[
+                      styles.folderItemText,
+                      selectedFolder?.id === folder.id && styles.folderItemTextSelected,
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {folder.name}
+                  </Text>
+                  {selectedFolder?.id === folder.id && (
+                    <Feather name="check" size={20} color={colors.success} />
+                  )}
+                </TouchableOpacity>
+              ))}
+
+              {availableFolders.length === 0 && (
+                <View style={styles.noFoldersContainer}>
+                  <Feather name="folder" size={40} color={colors.textMuted} />
+                  <Text style={styles.noFoldersText}>Aucun dossier disponible</Text>
+                </View>
+              )}
+            </ScrollView>
+
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={styles.modalButtonCancel}
+                onPress={() => {
+                  setShowCopyModal(false);
+                  setSelectedFolder(null);
+                }}
+              >
+                <Text style={styles.modalButtonCancelText}>Annuler</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.copyButtonConfirm, isCopying && styles.modalButtonDisabled]}
+                onPress={handleConfirmCopy}
+                disabled={isCopying || !selectedFolder}
+              >
+                {isCopying ? (
+                  <ActivityIndicator size="small" color={colors.white} />
+                ) : (
+                  <Text style={styles.modalButtonConfirmText}>Copier</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -1398,5 +1527,12 @@ const styles = StyleSheet.create({
   },
   modalButtonDisabled: {
     opacity: 0.6,
+  },
+  copyButtonConfirm: {
+    flex: 1,
+    paddingVertical: 12,
+    alignItems: 'center',
+    backgroundColor: colors.success,
+    borderRadius: borderRadius.sm,
   },
 });

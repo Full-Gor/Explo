@@ -712,6 +712,113 @@ class FileSystemServiceClass {
   }
 
   /**
+   * Copie un fichier vers un dossier de destination
+   */
+  async copyToFolder(sourcePath: string, destinationFolder: string, fileName: string): Promise<{ success: boolean; newPath?: string }> {
+    try {
+      // S'assurer que le dossier de destination existe
+      const destInfo = await FileSystem.getInfoAsync(destinationFolder);
+      if (!destInfo.exists) {
+        await FileSystem.makeDirectoryAsync(destinationFolder, { intermediates: true });
+      }
+
+      // Construire le chemin de destination
+      const cleanDestFolder = destinationFolder.endsWith('/') ? destinationFolder.slice(0, -1) : destinationFolder;
+      let newPath = `${cleanDestFolder}/${fileName}`;
+
+      // Vérifier si un fichier existe déjà à la destination
+      const existingInfo = await FileSystem.getInfoAsync(newPath);
+      if (existingInfo.exists) {
+        // Générer un nouveau nom avec un suffixe
+        const nameWithoutExt = fileName.replace(/\.[^.]+$/, '');
+        const ext = fileName.match(/\.[^.]+$/)?.[0] || '';
+        let counter = 1;
+        while (true) {
+          const newFileName = `${nameWithoutExt} (${counter})${ext}`;
+          newPath = `${cleanDestFolder}/${newFileName}`;
+          const checkInfo = await FileSystem.getInfoAsync(newPath);
+          if (!checkInfo.exists) break;
+          counter++;
+          if (counter > 100) {
+            return { success: false }; // Éviter une boucle infinie
+          }
+        }
+      }
+
+      // Copier le fichier
+      await FileSystem.copyAsync({
+        from: sourcePath,
+        to: newPath,
+      });
+
+      // Vérifier que la copie a réussi
+      const newFileInfo = await FileSystem.getInfoAsync(newPath);
+      return { success: newFileInfo.exists, newPath };
+    } catch (error) {
+      console.error('Error copying to folder:', error);
+      return { success: false };
+    }
+  }
+
+  /**
+   * Copie un asset MediaLibrary vers un dossier
+   */
+  async copyMediaAsset(assetId: string, destinationFolder: string, fileName: string): Promise<{ success: boolean; newPath?: string }> {
+    try {
+      // Obtenir l'URI locale de l'asset
+      const assetInfo = await MediaLibrary.getAssetInfoAsync(assetId);
+      const localUri = assetInfo?.localUri;
+
+      if (!localUri) {
+        console.error('Could not get local URI for asset');
+        return { success: false };
+      }
+
+      // S'assurer que le dossier de destination existe
+      const destInfo = await FileSystem.getInfoAsync(destinationFolder);
+      if (!destInfo.exists) {
+        await FileSystem.makeDirectoryAsync(destinationFolder, { intermediates: true });
+      }
+
+      // Construire le chemin de destination
+      const cleanDestFolder = destinationFolder.endsWith('/') ? destinationFolder.slice(0, -1) : destinationFolder;
+      let newPath = `${cleanDestFolder}/${fileName}`;
+
+      // Vérifier si un fichier existe déjà à la destination
+      const existingInfo = await FileSystem.getInfoAsync(newPath);
+      if (existingInfo.exists) {
+        // Générer un nouveau nom avec un suffixe
+        const nameWithoutExt = fileName.replace(/\.[^.]+$/, '');
+        const ext = fileName.match(/\.[^.]+$/)?.[0] || '';
+        let counter = 1;
+        while (true) {
+          const newFileName = `${nameWithoutExt} (${counter})${ext}`;
+          newPath = `${cleanDestFolder}/${newFileName}`;
+          const checkInfo = await FileSystem.getInfoAsync(newPath);
+          if (!checkInfo.exists) break;
+          counter++;
+          if (counter > 100) {
+            return { success: false }; // Éviter une boucle infinie
+          }
+        }
+      }
+
+      // Copier le fichier vers la destination
+      await FileSystem.copyAsync({
+        from: localUri,
+        to: newPath,
+      });
+
+      // Vérifier que la copie a réussi
+      const newFileInfo = await FileSystem.getInfoAsync(newPath);
+      return { success: newFileInfo.exists, newPath };
+    } catch (error) {
+      console.error('Error copying media asset:', error);
+      return { success: false };
+    }
+  }
+
+  /**
    * Déplace un fichier
    */
   async move(sourcePath: string, destinationPath: string): Promise<boolean> {
