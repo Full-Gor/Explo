@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -283,12 +283,10 @@ export function FolderScreen() {
     }
 
     try {
-      const success = await FileSystemService.createFolder(path, newFolderName.trim());
-      if (success) {
+      const result = await FileSystemService.createFolder(path, newFolderName.trim());
+      if (result.success && result.path) {
         // Sauvegarder la couleur du dossier
-        const cleanPath = path.endsWith('/') ? path.slice(0, -1) : path;
-        const newFolderPath = `${cleanPath}/${newFolderName.trim()}`;
-        await saveFolderColor(newFolderPath, selectedColor);
+        await saveFolderColor(result.path, selectedColor);
 
         setShowNewFolderModal(false);
         setNewFolderName('');
@@ -296,7 +294,7 @@ export function FolderScreen() {
         await loadDirectory();
         Alert.alert('Succès', 'Dossier créé avec succès');
       } else {
-        Alert.alert('Erreur', 'Impossible de créer le dossier. Il existe peut-être déjà.');
+        Alert.alert('Erreur', result.error || 'Impossible de créer le dossier');
       }
     } catch (error) {
       Alert.alert('Erreur', 'Une erreur est survenue lors de la création du dossier');

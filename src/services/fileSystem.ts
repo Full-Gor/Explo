@@ -535,27 +535,51 @@ class FileSystemServiceClass {
   /**
    * Crée un nouveau dossier
    */
-  async createFolder(parentPath: string, folderName: string): Promise<boolean> {
+  async createFolder(parentPath: string, folderName: string): Promise<{ success: boolean; error?: string; path?: string }> {
     try {
+      // Validation du nom de dossier
+      if (!folderName || !folderName.trim()) {
+        return { success: false, error: 'Le nom du dossier ne peut pas être vide' };
+      }
+
+      // Caractères interdits dans les noms de fichiers/dossiers
+      const invalidChars = /[<>:"/\\|?*]/;
+      if (invalidChars.test(folderName)) {
+        return { success: false, error: 'Le nom contient des caractères non autorisés' };
+      }
+
       // S'assurer que le chemin parent ne se termine pas déjà par un slash
       const cleanParentPath = parentPath.endsWith('/') ? parentPath.slice(0, -1) : parentPath;
-      const newPath = `${cleanParentPath}/${folderName}`;
+      const cleanFolderName = folderName.trim();
+      const newPath = `${cleanParentPath}/${cleanFolderName}`;
+
+      console.log('Creating folder at:', newPath);
+
+      // Vérifier si le dossier parent existe
+      const parentInfo = await FileSystem.getInfoAsync(cleanParentPath);
+      if (!parentInfo.exists) {
+        return { success: false, error: 'Le dossier parent n\'existe pas' };
+      }
 
       // Vérifier si le dossier existe déjà
       const existingInfo = await FileSystem.getInfoAsync(newPath);
       if (existingInfo.exists) {
         console.log('Folder already exists:', newPath);
-        return false;
+        return { success: false, error: 'Un dossier avec ce nom existe déjà' };
       }
 
       await FileSystem.makeDirectoryAsync(newPath, { intermediates: true });
 
       // Vérifier que le dossier a bien été créé
       const newInfo = await FileSystem.getInfoAsync(newPath);
-      return newInfo.exists;
+      if (newInfo.exists) {
+        return { success: true, path: newPath };
+      } else {
+        return { success: false, error: 'Le dossier n\'a pas pu être créé' };
+      }
     } catch (error) {
       console.error('Error creating folder:', error);
-      return false;
+      return { success: false, error: `Erreur: ${error instanceof Error ? error.message : 'Erreur inconnue'}` };
     }
   }
 
