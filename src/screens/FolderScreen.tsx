@@ -268,7 +268,8 @@ export function FolderScreen() {
 
   // Vérifie si le chemin permet la création de dossiers
   const isMediaLibraryPath = path.startsWith('media://');
-  const canCreateFolder = !isMediaLibraryPath;
+  const isVirtualPath = path.startsWith('docs://');
+  const canCreateFolder = !isMediaLibraryPath && !isVirtualPath;
 
   const handleCreateFolder = async () => {
     if (!newFolderName.trim()) {
@@ -276,8 +277,8 @@ export function FolderScreen() {
       return;
     }
 
-    if (isMediaLibraryPath) {
-      Alert.alert('Non supporté', 'Impossible de créer un dossier dans cette zone.');
+    if (isMediaLibraryPath || isVirtualPath) {
+      Alert.alert('Non supporté', 'Impossible de créer un dossier ici. Allez dans Documents ou Téléchargements.');
       setShowNewFolderModal(false);
       return;
     }

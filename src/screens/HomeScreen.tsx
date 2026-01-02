@@ -11,6 +11,8 @@ import {
   ActivityIndicator,
   Alert,
   RefreshControl,
+  Modal,
+  TextInput,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useTranslation } from 'react-i18next';
@@ -38,6 +40,22 @@ import { FileItem as FileItemType } from '../types';
 const SEARCH_DEBOUNCE = 300;
 
 const FOLDER_COLORS_STORAGE_KEY = 'folder_colors';
+
+// Couleurs disponibles pour les dossiers
+const FOLDER_COLORS = [
+  colors.folderOrange,
+  '#FF6B6B', // Rouge
+  '#4ECDC4', // Turquoise
+  '#45B7D1', // Bleu clair
+  '#96CEB4', // Vert menthe
+  '#9B59B6', // Violet
+  '#3498DB', // Bleu
+  '#E74C3C', // Rouge vif
+  '#2ECC71', // Vert
+  '#F39C12', // Orange
+  '#1ABC9C', // Teal
+  '#E91E63', // Pink
+];
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -88,6 +106,11 @@ export function HomeScreen() {
   const [isImporting, setIsImporting] = useState(false);
   const searchTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
 
+  // État pour la création de dossier
+  const [showNewFolderModal, setShowNewFolderModal] = useState(false);
+  const [newFolderName, setNewFolderName] = useState('');
+  const [selectedColor, setSelectedColor] = useState(FOLDER_COLORS[0]);
+
   // Charger les couleurs des dossiers
   const loadFolderColors = async () => {
     try {
@@ -97,6 +120,50 @@ export function HomeScreen() {
       }
     } catch (error) {
       console.error('Error loading folder colors:', error);
+    }
+  };
+
+  // Sauvegarder la couleur d'un dossier
+  const saveFolderColor = async (folderPath: string, color: string) => {
+    try {
+      const newColors = { ...folderColors, [folderPath]: color };
+      await AsyncStorage.setItem(FOLDER_COLORS_STORAGE_KEY, JSON.stringify(newColors));
+      setFolderColors(newColors);
+    } catch (error) {
+      console.error('Error saving folder color:', error);
+    }
+  };
+
+  // Créer un nouveau dossier dans Documents
+  const handleCreateFolder = async () => {
+    if (!newFolderName.trim()) {
+      Alert.alert('Erreur', 'Veuillez entrer un nom de dossier');
+      return;
+    }
+
+    try {
+      const documentsPath = await FileSystemService.getRootDirectories();
+      const docsFolder = documentsPath.find(f => f.id === 'documents');
+
+      if (!docsFolder?.path) {
+        Alert.alert('Erreur', 'Impossible de trouver le dossier Documents');
+        return;
+      }
+
+      const result = await FileSystemService.createFolder(docsFolder.path, newFolderName.trim());
+
+      if (result.success && result.path) {
+        await saveFolderColor(result.path, selectedColor);
+        setShowNewFolderModal(false);
+        setNewFolderName('');
+        setSelectedColor(FOLDER_COLORS[0]);
+        await loadFiles();
+        Alert.alert('Succès', 'Dossier créé avec succès');
+      } else {
+        Alert.alert('Erreur', result.error || 'Impossible de créer le dossier');
+      }
+    } catch (error) {
+      Alert.alert('Erreur', 'Une erreur est survenue lors de la création du dossier');
     }
   };
 
@@ -501,6 +568,89 @@ export function HomeScreen() {
           </ScrollView>
         )}
       </View>
+
+      {/* Bouton flottant pour créer un dossier */}
+      <TouchableOpacity
+        style={styles.fab}
+        onPress={() => {
+          Vibration.vibrate(10);
+          setShowNewFolderModal(true);
+        }}
+      >
+        <LinearGradient
+          colors={gradients.accent as [string, string]}
+          style={styles.fabGradient}
+        >
+          <Feather name="folder-plus" size={24} color={colors.white} />
+        </LinearGradient>
+      </TouchableOpacity>
+
+      {/* Modal Nouveau Dossier */}
+      <Modal
+        visible={showNewFolderModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowNewFolderModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Nouveau dossier</Text>
+
+            {/* Aperçu du dossier */}
+            <View style={styles.folderPreview}>
+              <FolderIcon size={60} color={selectedColor} />
+            </View>
+
+            <TextInput
+              style={styles.modalInput}
+              placeholder="Nom du dossier"
+              placeholderTextColor={colors.textMuted}
+              value={newFolderName}
+              onChangeText={setNewFolderName}
+              autoFocus
+            />
+
+            {/* Sélecteur de couleur */}
+            <Text style={styles.colorPickerLabel}>Couleur du dossier</Text>
+            <View style={styles.colorPicker}>
+              {FOLDER_COLORS.map((color) => (
+                <TouchableOpacity
+                  key={color}
+                  style={[
+                    styles.colorOption,
+                    { backgroundColor: color },
+                    selectedColor === color && styles.colorOptionSelected,
+                  ]}
+                  onPress={() => setSelectedColor(color)}
+                >
+                  {selectedColor === color && (
+                    <Feather name="check" size={16} color={colors.white} />
+                  )}
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={styles.modalButtonCancel}
+                onPress={() => {
+                  setShowNewFolderModal(false);
+                  setNewFolderName('');
+                  setSelectedColor(FOLDER_COLORS[0]);
+                }}
+              >
+                <Text style={styles.modalButtonCancelText}>Annuler</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.modalButtonConfirm}
+                onPress={handleCreateFolder}
+              >
+                <Text style={styles.modalButtonConfirmText}>Créer</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -664,5 +814,116 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontSize: 10,
     textAlign: 'center',
+  },
+  // FAB styles
+  fab: {
+    position: 'absolute',
+    bottom: 30,
+    right: 20,
+    borderRadius: 30,
+    elevation: 8,
+    shadowColor: colors.black,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+  },
+  fabGradient: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  // Modal styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    width: SCREEN_WIDTH - 60,
+    backgroundColor: colors.cardLight,
+    borderRadius: borderRadius.lg,
+    padding: 24,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: colors.textDark,
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  modalInput: {
+    backgroundColor: colors.white,
+    borderRadius: borderRadius.sm,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontSize: 16,
+    color: colors.textDark,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.1)',
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 20,
+  },
+  modalButtonCancel: {
+    flex: 1,
+    paddingVertical: 12,
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.05)',
+    borderRadius: borderRadius.sm,
+  },
+  modalButtonCancelText: {
+    color: colors.textMuted,
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  modalButtonConfirm: {
+    flex: 1,
+    paddingVertical: 12,
+    alignItems: 'center',
+    backgroundColor: colors.accentGradientStart,
+    borderRadius: borderRadius.sm,
+  },
+  modalButtonConfirmText: {
+    color: colors.white,
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  folderPreview: {
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  colorPickerLabel: {
+    fontSize: 14,
+    color: colors.textMuted,
+    marginTop: 16,
+    marginBottom: 12,
+  },
+  colorPicker: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  colorOption: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  colorOptionSelected: {
+    borderWidth: 3,
+    borderColor: colors.white,
+    shadowColor: colors.black,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 4,
   },
 });
